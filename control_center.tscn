@@ -22,9 +22,9 @@ script/source = "extends Control
 var level_scenes: Dictionary = {
 	0: \"res://levels/level_1/risc_v_level.tscn\",
 	1: \"res://levels/level_2/opcode.tscn\",
-	2: \"res://levels/level_3/pipelining\",
-	3: \"res://levels/level_4/the_stack\",
-	4: \"res://levels/level_5/code_tracing\",
+	2: \"res://levels/level_3/pipelining.tscn\",
+	3: \"res://levels/level_4/the_stack.tscn\",
+	4: \"res://levels/level_5/code_tracing.tscn\",
 	5: \"res://levels/level_6/code_writing.tscn\"}
 
 func _ready() -> void:
@@ -46,7 +46,10 @@ func _ready() -> void:
 func _on_level_button_pressed(level_index: int) -> void:
 	if level_scenes.has(level_index):
 		print(\"Routing system path to: \", level_scenes[level_index])
-		get_tree().change_scene_to_file(level_scenes[level_index])
+		var path: String = level_scenes[level_index]
+		var err := get_tree().change_scene_to_file(path)
+		if err != OK:
+			push_error(\"Failed to load scene: %s (error %d)\" % [path, err])
 	else:
 		print(\"Target level instruction profile unmapped.\")
 
