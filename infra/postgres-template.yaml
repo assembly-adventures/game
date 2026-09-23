@@ -1,0 +1,94 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: assembly-adventures-postgres
+parameters:
+  - name: NAMESPACE
+    required: true
+objects:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: assembly-adventures-postgres-data
+      namespace: ${NAMESPACE}
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 1Gi
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: assembly-adventures-postgres
+      namespace: ${NAMESPACE}
+    spec:
+      replicas: 1
+      strategy:
+        type: Recreate
+      selector:
+        matchLabels:
+          app: assembly-adventures-postgres
+      template:
+        metadata:
+          labels:
+            app: assembly-adventures-postgres
+        spec:
+          containers:
+            - name: postgres
+              image: quay.io/sclorg/postgresql-16-c9s@sha256:8cfb29c886b54dd2c535e24896dffe45ff47a3006b9e880ef864415683f1daed
+              envFrom:
+                - secretRef:
+                    name: assembly-adventures-postgres-credentials
+              ports:
+                - containerPort: 5432
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/pgsql/data
+              resources:
+                requests:
+                  cpu: 60m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              readinessProbe:
+                exec:
+                  command: [pg_isready, -U, assembly_adventures, -d, assembly_adventures]
+                initialDelaySeconds: 5
+              livenessProbe:
+                exec:
+                  command: [pg_isready, -U, assembly_adventures, -d, assembly_adventures]
+                initialDelaySeconds: 30
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: assembly-adventures-postgres-data
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: assembly-adventures-postgres
+      namespace: ${NAMESPACE}
+    spec:
+      selector:
+        app: assembly-adventures-postgres
+      ports:
+        - port: 5432
+          targetPort: 5432
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: assembly-adventures-postgres
+      namespace: ${NAMESPACE}
+    spec:
+      podSelector:
+        matchLabels:
+          app: assembly-adventures-postgres
+      policyTypes: [Ingress]
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app: assembly-adventures
+          ports:
+            - protocol: TCP
+              port: 5432
