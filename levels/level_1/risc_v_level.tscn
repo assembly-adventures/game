@@ -1,99 +1,12 @@
 [gd_scene format=3 uid="uid://d1k80uj33ddae"]
 
-[ext_resource type="Script" uid="uid://chsxn2ywy7xjs" path="res://levels/level_1/risc_v_level.gd" id="1_3xkta"]
-[ext_resource type="Texture2D" uid="uid://cbt3c0b77jxq8" path="res://images/1.svg" id="2_rqobb"]
-[ext_resource type="PackedScene" uid="uid://ca8oxrx8f2iul" path="res://levels/HUD.tscn" id="3_ojv4l"]
+[ext_resource type="Script" path="res://levels/level_1/risc_v_level.gd" id="1_quiz"]
 
-[node name="RiscVLevel" type="Control" unique_id=157304075]
+[node name="RiscVLevel" type="Control"]
 layout_mode = 3
-anchors_preset = 0
-script = ExtResource("1_3xkta")
-
-[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=579997283]
-
-[node name="ColorRect" type="ColorRect" parent="CanvasLayer" unique_id=1095563777]
-custom_minimum_size = Vector2(500, 400)
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -432.0
-offset_top = -200.0
-offset_right = 432.0
-offset_bottom = 200.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.27569982, 0.27569962, 0.27569982, 1)
-
-[node name="QuestionContainer" type="VBoxContainer" parent="CanvasLayer" unique_id=1524949035]
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -35.5
-offset_top = -81.0
-offset_right = 35.5
-offset_bottom = 81.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="QuestionLabel" type="Label" parent="CanvasLayer/QuestionContainer" unique_id=557661632]
-layout_mode = 2
-text = "Question"
-
-[node name="OptionsContainer" type="VBoxContainer" parent="CanvasLayer/QuestionContainer" unique_id=1899116100]
-layout_mode = 2
-
-[node name="OptionA" type="CheckButton" parent="CanvasLayer/QuestionContainer/OptionsContainer" unique_id=1728949139]
-layout_mode = 2
-
-[node name="OptionB" type="CheckButton" parent="CanvasLayer/QuestionContainer/OptionsContainer" unique_id=1524346605]
-layout_mode = 2
-
-[node name="OptionC" type="CheckButton" parent="CanvasLayer/QuestionContainer/OptionsContainer" unique_id=1859054771]
-layout_mode = 2
-
-[node name="OptionD" type="CheckButton" parent="CanvasLayer/QuestionContainer/OptionsContainer" unique_id=1411163934]
-layout_mode = 2
-
-[node name="FeedbackLabel" type="Label" parent="CanvasLayer/QuestionContainer" unique_id=2125510292]
-layout_mode = 2
-
-[node name="BadgePopup" type="PanelContainer" parent="CanvasLayer" unique_id=452167543]
-visible = false
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -20.0
-offset_top = -20.0
-offset_right = 20.0
-offset_bottom = 20.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="PopupVBox" type="VBoxContainer" parent="CanvasLayer/BadgePopup" unique_id=682866452]
-layout_mode = 2
-
-[node name="PopupTitle" type="Label" parent="CanvasLayer/BadgePopup/PopupVBox" unique_id=297077218]
-layout_mode = 2
-text = "BADGE UNLOCKED!"
-horizontal_alignment = 1
-
-[node name="TextureRect" type="TextureRect" parent="CanvasLayer/BadgePopup/PopupVBox" unique_id=353684280]
-layout_mode = 2
-texture = ExtResource("2_rqobb")
-
-[node name="BadgeName" type="Label" parent="CanvasLayer/BadgePopup/PopupVBox" unique_id=123405070]
-layout_mode = 2
-text = "Basic Instructions Master"
-horizontal_alignment = 1
-
-[node name="ContinueButton" type="Button" parent="CanvasLayer/BadgePopup/PopupVBox" unique_id=275007858]
-layout_mode = 2
-text = "Return to Control Center"
-
-[node name="Hud" parent="." unique_id=1489020385 instance=ExtResource("3_ojv4l")]
+script = ExtResource("1_quiz")
