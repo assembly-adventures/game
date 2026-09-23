@@ -1,3 +1,21 @@
+# Legacy question bank format
+
+> **The database is the source of truth for questions.** `questions.json` is a
+> temporary file that predates it, kept as reference context and as the input to
+> the original one-time bootstrap. To inspect it safely, run
+> `python3 db/seed/import_questions.py --check`; running without `--check` rewrites
+> an applied seed and must not be used for ongoing content changes. The game reads
+> questions from the API, not from this file, and new questions are authored in
+> the database rather than added here.
+>
+> The document below describes the JSON as it is actually written, for reading
+> the existing file. For the shape questions actually take once they are in the
+> database — where every option, tile, and match pair carries a stable id, so
+> grading compares ids rather than answer text — see [schema.md](schema.md).
+>
+> Note that the JSON uses the key `drap-and-drop` (misspelled). The importer
+> maps it to the `drag_and_drop` question type.
+
 ## JSON File Structure
 
 The question bank is organized by **levels**, with each level stored as a top-level key such as `level_1`, `level_5`, or `level_6`. Each level contains a `name` field that describes the topic of the level and a `questions` object that groups questions by question type.
