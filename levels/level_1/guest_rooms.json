@@ -1,0 +1,333 @@
+[
+ {
+  "ordinal": 1,
+  "prompt": "Tap an instruction to run it on register x5. Make x5's bulbs match the target pattern to open the gate.",
+  "hint": "Press +1 once.",
+  "explanation": "addi x5, x5, 1 adds an immediate (a constant) to a register. The rightmost bulb is worth 1.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "unsigned",
+   "initial": {
+    "x5": 0
+   },
+   "goal": {
+    "x5": 1
+   },
+   "buttons": [
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 2,
+   "par": 1
+  }
+ },
+ {
+  "ordinal": 2,
+  "prompt": "New instruction: slli slides every bit one place to the left.",
+  "hint": "Keep sliding until the light sits under the target.",
+  "explanation": "Each shift left doubles the number: 1 → 2 → 4 → 8. slli is a fast way to multiply by 2.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "unsigned",
+   "initial": {
+    "x5": 1
+   },
+   "goal": {
+    "x5": 8
+   },
+   "buttons": [
+    {
+     "op": "slli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 4,
+   "par": 3
+  }
+ },
+ {
+  "ordinal": 3,
+  "prompt": "Two buttons now. Line up the pattern, then fill the gap.",
+  "hint": "Shift first. Which bulb is still dark?",
+  "explanation": "Shifting 0101 left gives 1010 (10), and adding 1 lights the last bulb: 1011 is 11.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "unsigned",
+   "initial": {
+    "x5": 5
+   },
+   "goal": {
+    "x5": 11
+   },
+   "buttons": [
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    },
+    {
+     "op": "slli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 3,
+   "par": 2
+  }
+ },
+ {
+  "ordinal": 4,
+  "prompt": "Register x6 is holding 3. add x5, x5, x6 adds whatever x6 holds to x5.",
+  "hint": "Try to reach 5 first, then double it.",
+  "explanation": "add reads two registers: 2 + 3 = 5, shifting gives 10, and 10 + 3 = 13.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "unsigned",
+   "initial": {
+    "x5": 2,
+    "x6": 3
+   },
+   "goal": {
+    "x5": 13
+   },
+   "buttons": [
+    {
+     "op": "add",
+     "rd": 5,
+     "rs1": 5,
+     "rs2": 6
+    },
+    {
+     "op": "slli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 4,
+   "par": 3
+  }
+ },
+ {
+  "ordinal": 5,
+  "prompt": "This gate reads hex. Each hex digit is 4 bulbs, and slli 4 slides a whole digit left.",
+  "hint": "Move the 3 into the left hex digit first.",
+  "explanation": "Shifting left by 4 moves every bit one hex digit: 0x03 becomes 0x30, and adding 1 gives 0x31.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "hex",
+   "initial": {
+    "x5": 3
+   },
+   "goal": {
+    "x5": 49
+   },
+   "buttons": [
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    },
+    {
+     "op": "slli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    },
+    {
+     "op": "slli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 4
+    }
+   ],
+   "max_moves": 3,
+   "par": 2
+  }
+ },
+ {
+  "ordinal": 6,
+  "prompt": "andi works like a stencil: a bulb stays lit only where the mask also has a 1.",
+  "hint": "Try using both masks.",
+  "explanation": "0xFF and 0x0F is 0x0F, and 0x0F and 0xAA is 0x0A. With AND, the order doesn't matter.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "hex",
+   "initial": {
+    "x5": 255
+   },
+   "goal": {
+    "x5": 10
+   },
+   "buttons": [
+    {
+     "op": "andi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 15
+    },
+    {
+     "op": "andi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 170
+    },
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 3,
+   "par": 2
+  }
+ },
+ {
+  "ordinal": 7,
+  "prompt": "New: ori turns bulbs on, and xori 0xFF flips every bulb.",
+  "hint": "Light the right half first, then flip.",
+  "explanation": "0x00 or 0x0F is 0x0F. Flipping every bit turns 0000 1111 into 1111 0000, which is 0xF0.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "hex",
+   "initial": {
+    "x5": 0
+   },
+   "goal": {
+    "x5": 240
+   },
+   "buttons": [
+    {
+     "op": "ori",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 15
+    },
+    {
+     "op": "xori",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 255
+    }
+   ],
+   "max_moves": 3,
+   "par": 2
+  }
+ },
+ {
+  "ordinal": 8,
+  "prompt": "Signed gate: now the leftmost bulb is worth -128. Turn 5 into -5.",
+  "hint": "Flipping 5 gives -6. How do you get from -6 to -5?",
+  "explanation": "To negate in two's complement, flip every bit and add 1: 5 → -6 → -5.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "signed",
+   "initial": {
+    "x5": 5
+   },
+   "goal": {
+    "x5": -5
+   },
+   "buttons": [
+    {
+     "op": "xori",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 255
+    },
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 3,
+   "par": 2
+  }
+ },
+ {
+  "ordinal": 9,
+  "prompt": "Can adding positive numbers make a negative? Reach -96 using only +64 and +32.",
+  "hint": "The biggest signed 8-bit number is 127. What happens when you go past it?",
+  "explanation": "64 + 64 = 128 doesn't fit in 8 signed bits, so it overflows to -128. Adding 32 gives -96.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "signed",
+   "initial": {
+    "x5": 0
+   },
+   "goal": {
+    "x5": -96
+   },
+   "buttons": [
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 64
+    },
+    {
+     "op": "addi",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 32
+    }
+   ],
+   "max_moves": 4,
+   "par": 3
+  }
+ },
+ {
+  "ordinal": 10,
+  "prompt": "Two right shifts: srli fills in a 0, srai copies the sign bit. Shrink -64 down to -8.",
+  "hint": "Watch what each shift does to the leftmost bulb.",
+  "explanation": "srai keeps negatives negative: -64 → -32 → -16 → -8. srli shifts in a 0 and makes the number positive.",
+  "payload": {
+   "kind": "moves",
+   "width": 8,
+   "display": "signed",
+   "initial": {
+    "x5": -64
+   },
+   "goal": {
+    "x5": -8
+   },
+   "buttons": [
+    {
+     "op": "srli",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    },
+    {
+     "op": "srai",
+     "rd": 5,
+     "rs1": 5,
+     "imm": 1
+    }
+   ],
+   "max_moves": 4,
+   "par": 3
+  }
+ }
+]

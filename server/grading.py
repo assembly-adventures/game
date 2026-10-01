@@ -6,10 +6,12 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from .puzzles import grade_puzzle
+
 
 def snapshot(question: dict) -> tuple[dict, dict]:
     """Randomize option IDs as well as order so t1/t2 never reveals a solution."""
-    public = {key: question[key] for key in ("type", "prompt", "code_snippet")}
+    public = {key: question[key] for key in ("type", "prompt", "code_snippet", "hint")}
     public["id"] = str(question["id"])
     payload = deepcopy(question["payload"])
     kind = question["type"]
@@ -38,6 +40,10 @@ def snapshot(question: dict) -> tuple[dict, dict]:
         secrets.SystemRandom().shuffle(choices)
         public["payload"] = {"rows": rows, "choices": choices, "columns": payload["columns"]}
         solution = {"pairs": answers}
+    elif kind == "puzzle":
+        # Goals are shown to the player; the server grades by replaying the presses.
+        public["payload"] = payload
+        solution = {"puzzle": payload}
     else:
         raise HTTPException(503, "This question type is not supported.")
     return public, solution
@@ -47,6 +53,8 @@ def grade(public: dict, solution: dict, response: dict) -> bool:
     """Reject malformed or foreign IDs before comparing the submitted answer."""
     kind = public["type"]
     payload = public["payload"]
+    if kind == "puzzle":
+        return grade_puzzle(solution["puzzle"], response)
     if kind == "matching":
         pairs = response.get("pairs")
         row_ids = {item["id"] for item in payload["rows"]}

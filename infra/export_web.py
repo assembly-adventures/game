@@ -21,7 +21,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="aa-export-", dir=root / "build") as temp:
         stage = Path(temp)
-        for directory in ("images", "levels"):
+        for directory in ("assets", "images", "levels", "ui"):
             shutil.copytree(root / directory, stage / directory)
         for pattern in ("*.gd", "*.uid", "*.tscn", "*.tres", "*.gdshader"):
             for source in root.glob(pattern):

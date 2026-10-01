@@ -31,7 +31,7 @@ The schema exists to make three things possible:
 
 ## Current implementation
 
-The deployed API and game now implement level 1 with all 13 questions, saved
+The deployed API and game now implement level 1 with 10 puzzle gates, saved
 attempts, resume, and badges. Other levels are inactive. CSXL verifies Onyen and
 PID at login; no proxy identity headers are trusted. PID stays server-side.
 See [gameplay-api.md](gameplay-api.md) for the implemented request contract.
@@ -130,7 +130,7 @@ progress key in the running game.
 
 ### `aa.questions`
 
-One table for all three question types, with the type-specific parts in a
+One table for all four question types, with the type-specific parts in a
 `payload jsonb` column. Shared columns cover `prompt`, `code_snippet`, `hint`,
 `explanation`, `points`, `difficulty`, and `ordinal`.
 
@@ -159,6 +159,30 @@ pick" unanswerable.
  "pairs": [{"id": "p1", "left": "Destination register", "right": "x7"}],
  "distractors": []}
 ```
+
+```jsonc
+// puzzle — each button is a fixed instruction; the player presses them in any order
+{"kind": "moves", "width": 8, "display": "signed",
+ "initial": {"x5": 0}, "goal": {"x5": -96},
+ "buttons": [{"op": "addi", "rd": 5, "rs1": 5, "imm": 64},
+             {"op": "addi", "rd": 5, "rs1": 5, "imm": 32}],
+ "max_moves": 4, "par": 3}
+```
+
+Puzzle goals are not secret: the whole payload is the public snapshot, and the
+private `solution` is a copy that grading reads. `server/puzzles.py` replays the
+pressed buttons on `width`-bit registers and checks every `goal` register, so
+any winning order passes. `display` (`unsigned`, `signed` or `hex`) only changes
+how the game shows values; goals may be negative. `par` is the fewest presses
+that open the gate and earns full stars. The question's `hint` column is included
+in run snapshots so the game can offer it. `server/test_puzzles.py`
+brute-forces every Level 1 gate to check that it opens within `max_moves` and
+that `par` is the true minimum.
+
+Level 1 is made entirely of puzzle gates (`0005_level1_puzzles.sql`); its
+original 13 quiz questions are retired. Guest mode plays from a copy in
+`levels/level_1/guest_rooms.json`, which a gameplay test keeps in sync. Level
+ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 
 Drag-and-drop tiles are **stored in a scrambled order** so the seed file does
 not read as the solution top to bottom. The API must still shuffle per run —
@@ -205,6 +229,7 @@ run (`attempt_no`). `response` mirrors the payload vocabulary, in ids:
 {"selected_option_ids": ["opaque-option-id"]}          // multiple_choice
 {"order": ["opaque-tile-id-2", "opaque-tile-id-1"]}            // drag_and_drop
 {"pairs": {"opaque-row-id": "opaque-choice-id"}}      // matching
+{"moves": [1, 0, 0]}                                  // puzzle: buttons pressed, in order
 ```
 
 `player_id` is redundant with `run_id → level_runs.player_id`. It is kept so
@@ -219,6 +244,21 @@ caps it at one hour before insert.
 `request_id` is a client UUID with a unique `(run_id, request_id)` index. A retry
 with the same question and answer returns the previous result; different content
 under the same ID is rejected. Already-correct questions cannot earn more points.
+
+`answered_at` defaults to `clock_timestamp()` (migration `0006_gate_setbacks.sql`)
+rather than `now()`, so attempts sort in the order the server handled them under
+the player lock. Setbacks rely on that ordering.
+
+### `aa.run_setbacks`
+
+Added in migration `0006_gate_setbacks.sql`. Three failed tries on a puzzle gate
+reopen the gate before it; each row records one reopening (`question_id`) and
+the failed attempt that caused it (`caused_by_attempt_id`, unique, so a retried
+request finds its setback instead of adding another). Nothing is edited when a
+gate reopens. `server/gameplay.py` replays attempts and setbacks in time order:
+a question counts as solved only with a correct attempt after its latest
+setback, and strikes are wrong attempts since the player last arrived at the
+gate. Finishing a run requires every question to be solved in that sense.
 
 ### `aa.player_badges`
 

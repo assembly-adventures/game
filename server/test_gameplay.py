@@ -14,7 +14,41 @@ from itsdangerous import URLSafeTimedSerializer
 
 from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
-from server.gameplay import register_player
+from server.gameplay import register_player, replay
+
+
+# One winning sequence of button presses per Level 1 gate, keyed by ordinal
+# (db/migrations/0005_level1_puzzles.sql).
+REFERENCE = {
+    1: {"moves": [0]},
+    2: {"moves": [0, 0, 0]},
+    3: {"moves": [1, 0]},
+    4: {"moves": [0, 1, 0]},
+    5: {"moves": [2, 0]},
+    6: {"moves": [0, 1]},
+    7: {"moves": [0, 1]},
+    8: {"moves": [0, 1]},
+    9: {"moves": [0, 0, 1]},
+    10: {"moves": [1, 1, 1]},
+}
+
+
+class ReplayTests(unittest.TestCase):
+    """Solved state and strikes come from replaying attempts and setbacks in time order."""
+
+    def log(self, *entries):
+        return [{"question_id": gate, "is_correct": correct, "answered_at": at} for at, gate, correct in entries]
+
+    def test_a_setback_reopens_the_gate_until_it_is_solved_again(self):
+        attempts = self.log((0, "a", True), (1, "b", False), (2, "b", False), (3, "b", False))
+        self.assertEqual(replay(["a", "b"], attempts, {}), ({"a"}, {"a": 0, "b": 3}))
+        self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5}), (set(), {"a": 0, "b": 3}))
+        attempts += self.log((4, "a", False), (5, "a", True))
+        self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5}), ({"a"}, {"a": 1, "b": 0}))
+
+    def test_strikes_count_only_since_the_player_arrived(self):
+        attempts = self.log((0, "a", False), (1, "a", False), (2, "a", True), (3, "b", True))
+        self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5})[1]["a"], 0)
 
 
 @unittest.skipUnless(os.environ.get("TEST_DATABASE_URL"), "Set TEST_DATABASE_URL to an isolated test database")
@@ -57,11 +91,9 @@ class GameplayTests(unittest.TestCase):
 
     def solution(self, run_id, question):
         with connect() as conn:
-            row = conn.execute("SELECT solution FROM aa.run_questions WHERE run_id=%s AND question_id=%s",
+            row = conn.execute("SELECT ordinal FROM aa.run_questions WHERE run_id=%s AND question_id=%s",
                                (run_id, question['id'])).fetchone()
-        if question['type'] == 'matching':
-            return row['solution']
-        return {('selected_option_ids' if question['type'] == 'multiple_choice' else 'order'): row['solution']['ids']}
+        return REFERENCE[row['ordinal']]
 
     def answer(self, run_id, question, response, request_id=None):
         return self.post(f'/runs/{run_id}/attempts', {"question_id": question['id'],
@@ -69,7 +101,7 @@ class GameplayTests(unittest.TestCase):
 
     def test_full_run_retry_resume_badge_and_identity_privacy(self):
         run = self.start()
-        self.assertEqual(len(run['questions']), 13)
+        self.assertEqual(len(run['questions']), 10)
         serialized = json.dumps(run)
         for private in ('correct_option_ids', 'correct_order', 'solution', '"right"', '"pid"'):
             self.assertNotIn(private, serialized)
@@ -77,8 +109,7 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(self.post(f"/runs/{run['id']}/finish").status_code, 409)
         first = run['questions'][0]
         right = self.solution(run['id'], first)
-        wrong = next(o['id'] for o in first['payload']['options'] if o['id'] not in right['selected_option_ids'])
-        self.assertFalse(self.answer(run['id'], first, {'selected_option_ids': [wrong]}).json()['is_correct'])
+        self.assertFalse(self.answer(run['id'], first, {'moves': [0, 0]}).json()['is_correct'])
         request_id = str(uuid4())
         for _ in range(2):
             self.assertTrue(self.answer(run['id'], first, right, request_id).json()['is_correct'])
@@ -95,9 +126,9 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(profile['progress_ratio'], 1.0)
         self.assertNotIn('pid', profile)
         with connect() as conn:
-            self.assertEqual(conn.execute('SELECT count(*) AS n FROM aa.question_attempts WHERE run_id=%s', (run['id'],)).fetchone()['n'], 14)
+            self.assertEqual(conn.execute('SELECT count(*) AS n FROM aa.question_attempts WHERE run_id=%s', (run['id'],)).fetchone()['n'], 11)
             summary = conn.execute('SELECT score,questions_correct FROM aa.level_runs WHERE id=%s', (run['id'],)).fetchone()
-            self.assertEqual(summary, {'score': 13, 'questions_correct': 13})
+            self.assertEqual(summary, {'score': 10, 'questions_correct': 10})
         # Reloading the app and reusing the signed session preserves progress.
         with TestClient(create_app(), base_url='https://game.example') as fresh:
             fresh.cookies.update(self.client.cookies)
@@ -115,7 +146,7 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/runs',json={'level_id':1},headers={'X-AA-Request':'1','Origin':'https://evil.example'}).status_code,403)
         self.assertEqual(self.post('/runs',{'level_id':1,'player_id':str(uuid4())}).status_code,422)
         self.assertEqual(self.post('/runs',{'level_id':5}).status_code,404)
-        self.assertEqual(self.answer(run['id'],question,{'selected_option_ids':['invented']}).status_code,422)
+        self.assertEqual(self.answer(run['id'],question,{'moves':[5]}).status_code,422)
         foreign = dict(question, id=str(uuid4()))
         self.assertEqual(self.answer(run['id'],foreign,response).status_code,404)
         self.client.cookies.clear()
@@ -150,23 +181,60 @@ class GameplayTests(unittest.TestCase):
             row = conn.execute('SELECT count(*) AS n,sum(points_awarded) AS points FROM aa.question_attempts WHERE run_id=%s',(run['id'],)).fetchone()
             self.assertEqual(row, {'n':1,'points':1})
 
-    def test_ordering_matching_and_multiselect_require_complete_answers(self):
-        run = self.start()
-        multi = next(q for q in run['questions'] if q['type'] == 'multiple_choice' and q['payload']['multi_select'])
-        right = self.solution(run['id'], multi)['selected_option_ids']
-        self.assertFalse(self.answer(run['id'], multi, {'selected_option_ids': right[:1]}).json()['is_correct'])
-        ordered = next(q for q in run['questions'] if q['type'] == 'drag_and_drop')
-        order = self.solution(run['id'], ordered)['order']
-        self.assertFalse(self.answer(run['id'], ordered, {'order': list(reversed(order))}).json()['is_correct'])
-        self.assertEqual(self.answer(run['id'], ordered, {'order': order[:-1]}).status_code, 422)
-        matching = next(q for q in run['questions'] if q['type'] == 'matching')
-        pairs = self.solution(run['id'], matching)['pairs']
-        keys = list(pairs)
-        swapped = dict(pairs)
-        swapped[keys[0]], swapped[keys[1]] = swapped[keys[1]], swapped[keys[0]]
-        self.assertFalse(self.answer(run['id'], matching, {'pairs': swapped}).json()['is_correct'])
-        self.assertEqual(self.answer(run['id'], matching, {'pairs': {key: pairs[keys[0]] for key in keys}}).status_code, 422)
+    def test_guest_rooms_match_the_database(self):
+        # Guest mode plays from a copy of the rooms, so it must not drift from 0005.
+        guest = json.loads(Path(__file__).parents[1].joinpath('levels/level_1/guest_rooms.json').read_text())
+        with connect() as conn:
+            rows = conn.execute("""SELECT ordinal,prompt,hint,explanation,payload FROM aa.questions
+                WHERE level_id=1 AND is_active ORDER BY ordinal""").fetchall()
+        self.assertEqual(guest, [dict(row) for row in rows])
 
+    def test_gates_accept_any_winning_order_and_reject_bad_presses(self):
+        run = self.start()
+        overflow, keep_sign = run['questions'][8], run['questions'][9]
+        self.assertEqual(overflow['payload']['goal'], {'x5': -96})
+        self.assertTrue(overflow['hint'])
+        self.assertEqual(self.answer(run['id'], overflow, {'moves': [1, 1, 1, 1, 1]}).status_code, 422)
+        self.assertEqual(self.answer(run['id'], overflow, {'moves': [2]}).status_code, 422)
+        self.assertFalse(self.answer(run['id'], overflow, {'moves': [1, 1, 1]}).json()['is_correct'])
+        self.assertTrue(self.answer(run['id'], overflow, {'moves': [1, 0, 0]}).json()['is_correct'])
+        self.assertFalse(self.answer(run['id'], keep_sign, {'moves': [0, 0, 0]}).json()['is_correct'])
+
+
+    def test_third_strike_drags_the_player_back_a_gate(self):
+        run = self.start()
+        first, second, third = run['questions'][:3]
+        for gate in (first, second):
+            self.assertTrue(self.answer(run['id'], gate, self.solution(run['id'], gate)).json()['is_correct'])
+        wrong = {'moves': [0, 0, 0]}
+        strikes = [self.answer(run['id'], third, wrong).json() for _ in range(2)]
+        self.assertEqual([(r['strikes'], r['setback_question_id']) for r in strikes], [(1, None), (2, None)])
+        request_id = str(uuid4())
+        third_strike = self.answer(run['id'], third, wrong, request_id).json()
+        self.assertEqual((third_strike['strikes'], third_strike['setback_question_id']), (3, second['id']))
+        # Retrying the same request reports the same setback without adding another.
+        self.assertEqual(self.answer(run['id'], third, wrong, request_id).json(), third_strike)
+        self.assertEqual(self.start()['solved_question_ids'], [first['id']])
+        again = self.answer(run['id'], second, self.solution(run['id'], second)).json()
+        self.assertEqual((again['is_correct'], again['strikes']), (True, 0))
+        self.assertEqual(self.answer(run['id'], third, wrong).json()['strikes'], 1)
+        for question in run['questions'][2:]:
+            self.assertTrue(self.answer(run['id'], question, self.solution(run['id'], question)).json()['is_correct'])
+        self.assertEqual(self.post(f"/runs/{run['id']}/finish").status_code, 200)
+        with connect() as conn:
+            summary = conn.execute('SELECT score,questions_correct FROM aa.level_runs WHERE id=%s', (run['id'],)).fetchone()
+            setbacks = conn.execute('SELECT count(*) AS n FROM aa.run_setbacks WHERE run_id=%s', (run['id'],)).fetchone()
+        # The re-solved gate earns its point only once.
+        self.assertEqual((summary, setbacks['n']), ({'score': 10, 'questions_correct': 10}, 1))
+
+    def test_third_strike_on_the_first_gate_restarts_it(self):
+        run = self.start()
+        first = run['questions'][0]
+        results = [self.answer(run['id'], first, {'moves': [0, 0]}).json() for _ in range(3)]
+        self.assertEqual(results[-1]['setback_question_id'], first['id'])
+        self.assertEqual(self.start()['strikes'], {})
+        self.assertEqual(self.answer(run['id'], first, {'moves': [0, 0]}).json()['strikes'], 1)
+        self.assertEqual(self.start()['strikes'], {first['id']: 1})
 
 if __name__ == '__main__':
     unittest.main()

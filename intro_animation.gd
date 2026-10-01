@@ -1,5 +1,7 @@
 extends Node2D
 
+const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
+
 @onready var text_label: RichTextLabel = $CanvasLayer/MainLayout/RichTextLabel
 @onready var start_button: Button = $CanvasLayer/MainLayout/StartButton
 @onready var replay_button: Button = $CanvasLayer/ReplayButton
@@ -49,6 +51,12 @@ var current_line: int = 0
 var active_tween: Tween
 
 func _ready() -> void:
+	# The shared circuit board replaces the plain black background, dimmed so the story reads clearly.
+	var backdrop := CircuitBackdrop.new()
+	backdrop.modulate = Color(0.75, 0.75, 0.75)
+	$CanvasLayer.add_child(backdrop)
+	$CanvasLayer.move_child(backdrop, 0)
+	$CanvasLayer/ColorRect.hide()
 	# Connect UI button signals programmatically
 	start_button.pressed.connect(_on_start_button_pressed)
 	replay_button.pressed.connect(_on_replay_button_pressed)
