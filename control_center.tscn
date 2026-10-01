@@ -10,64 +10,7 @@
 [ext_resource type="Texture2D" uid="uid://den6ejw1n3rdu" path="res://images/6.svg" id="7_6524e"]
 [ext_resource type="Texture2D" uid="uid://cm3ir5bytp2oj" path="res://images/7.svg" id="8_yegax"]
 
-[sub_resource type="GDScript" id="GDScript_hsfs1"]
-script/source = "extends Control
-
-@onready var levels_grid: GridContainer = $MainLayout/LevelsGrid
-@onready var challenge_button: Button = $MainLayout/level_7
-@onready var badges_container: HBoxContainer = $MainLayout/BadgesContainer
-@onready var progress_bar: ProgressBar = $MainLayout/ProgressBar
-
-# Map your levels array cleanly to match the introductory narrative
-var level_scenes: Dictionary = {
-	0: \"res://levels/level_1/risc_v_level.tscn\",
-	1: \"res://levels/level_2/opcode.tscn\",
-	2: \"res://levels/level_3/pipelining.tscn\",
-	3: \"res://levels/level_4/the_stack.tscn\",
-	4: \"res://levels/level_5/code_tracing.tscn\",
-	5: \"res://levels/level_6/code_writing.tscn\"}
-
-func _ready() -> void:
-	# Programmatically connect all level grid buttons based on their tree position index
-	var index = 0
-	for child in levels_grid.get_children():
-		if child is Button:
-			child.pressed.connect(_on_level_button_pressed.bind(index))
-			index += 1
-	
-	_update_progress_bar()
-			
-	# Connect the master bottom challenge button
-	challenge_button.pressed.connect(_on_challenge_button_pressed)
-	
-	# Optional initialization feature: Update visuals for completed badges
-	initialize_badges_display()
-
-func _on_level_button_pressed(level_index: int) -> void:
-	if level_scenes.has(level_index):
-		print(\"Routing system path to: \", level_scenes[level_index])
-		var path: String = level_scenes[level_index]
-		var err := get_tree().change_scene_to_file(path)
-		if err != OK:
-			push_error(\"Failed to load scene: %s (error %d)\" % [path, err])
-	else:
-		print(\"Target level instruction profile unmapped.\")
-
-func _on_challenge_button_pressed() -> void:
-	print(\"WARNING: Launching master system logic validation loop...\")
-	get_tree().change_scene_to_file(\"res://levels/level_challenge/challenger.tscn\")
-
-func _update_progress_bar() -> void:
-	if progress_bar:
-		var target_value := PlayerData.get_progress_ratio() * 100.0
-		var tween := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tween.tween_property(progress_bar, \"value\", target_value, 0.8)
-
-func initialize_badges_display() -> void:
-	# This function acts as a structural hook where you can pull player profile data
-	# to tint earned badges versus unearned dimmed outlines.
-	pass
-"
+[ext_resource type="Script" path="res://control_center.gd" id="9_control"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_ev7vo"]
 shader = ExtResource("1_d3ds4")
@@ -88,7 +31,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = SubResource("GDScript_hsfs1")
+script = ExtResource("9_control")
 
 [node name="ColorRect" type="ColorRect" parent="." unique_id=930860012]
 layout_mode = 1

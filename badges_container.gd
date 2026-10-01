@@ -4,6 +4,10 @@ extends HBoxContainer
 const GRAYSCALE_SHADER := preload("res://badge_grayscale.gdshader")
 
 func _ready() -> void:
+	PlayerData.profile_changed.connect(_refresh)
+	_refresh()
+
+func _refresh() -> void:
 	for badge in get_children():
 		_setup_badge(badge)
 
