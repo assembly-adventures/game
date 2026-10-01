@@ -1,0 +1,154 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: assembly-adventures
+parameters:
+  - name: NAMESPACE
+    required: true
+  - name: APP_HOST
+    required: true
+objects:
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: assembly-adventures
+      namespace: ${NAMESPACE}
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: assembly-adventures
+      namespace: ${NAMESPACE}
+    spec:
+      runPolicy: Serial
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: infra/Dockerfile
+      output:
+        to:
+          kind: ImageStreamTag
+          name: assembly-adventures:latest
+      successfulBuildsHistoryLimit: 2
+      failedBuildsHistoryLimit: 2
+      triggers: []
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: assembly-adventures
+      namespace: ${NAMESPACE}
+      annotations:
+        image.openshift.io/triggers: >-
+          [{"from":{"kind":"ImageStreamTag","name":"assembly-adventures:latest","namespace":"${NAMESPACE}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"web\")].image"},{"from":{"kind":"ImageStreamTag","name":"assembly-adventures:latest","namespace":"${NAMESPACE}"},"fieldPath":"spec.template.spec.initContainers[?(@.name==\"migrate\")].image"}]
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: assembly-adventures
+      template:
+        metadata:
+          labels:
+            app: assembly-adventures
+        spec:
+          initContainers:
+            - name: migrate
+              image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/assembly-adventures:latest
+              command: [python, -m, server.database]
+              env:
+                - name: DB_HOST
+                  value: assembly-adventures-postgres
+                - name: DB_NAME
+                  value: assembly_adventures
+                - name: DB_USER
+                  value: assembly_adventures
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: assembly-adventures-postgres-credentials
+                      key: POSTGRESQL_PASSWORD
+              resources:
+                requests:
+                  cpu: 60m
+                  memory: 96Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                capabilities:
+                  drop: [ALL]
+          containers:
+            - name: web
+              image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/assembly-adventures:latest
+              env:
+                - name: DB_HOST
+                  value: assembly-adventures-postgres
+                - name: DB_NAME
+                  value: assembly_adventures
+                - name: DB_USER
+                  value: assembly_adventures
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: assembly-adventures-postgres-credentials
+                      key: POSTGRESQL_PASSWORD
+                - name: APP_ORIGIN
+                  value: https://${APP_HOST}
+                - name: SESSION_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: assembly-adventures-session
+                      key: SESSION_SECRET
+              ports:
+                - name: http
+                  containerPort: 8080
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 60m
+                  memory: 96Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 10
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: assembly-adventures
+      namespace: ${NAMESPACE}
+    spec:
+      selector:
+        app: assembly-adventures
+      ports:
+        - name: http
+          port: 8080
+          targetPort: http
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: assembly-adventures
+      namespace: ${NAMESPACE}
+    spec:
+      host: ${APP_HOST}
+      to:
+        kind: Service
+        name: assembly-adventures
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
