@@ -56,7 +56,7 @@ export TEST_DATABASE_URL="$DATABASE_URL"
 python -m unittest server.test_app server.test_gameplay -v
 ```
 
-The runner applies four initial SQL files in filename order, including the two
+The runner applies the SQL files in filename order, including the two
 bootstrap seeds. Repeating the command is safe: `public.aa_schema_migrations`
 records filenames and checksums. `pgcrypto` and `citext` are required; the local
 container's initial database user can create these extensions.
@@ -156,6 +156,17 @@ python infra/export_web.py --godot /path/to/godot \
 python -m pip install playwright
 python infra/browser_smoke.py
 ```
+
+**Art, fonts, and audio.** The look is a flat-vector "neon circuit board":
+palette, fonts, and drawing helpers live in `ui/style.gd`, and `GameTheme.tres` is
+the project-wide theme, so new screens match without extra styling. Shared pieces
+are in `ui/`: the circuit backdrop, the robot and Chip Chomper sprites
+(`ui/characters.gd`, art in `assets/sprites/`), and the `Audio` autoload
+(`ui/audio.gd`) for sound effects, music, and the sound switch. Fonts, sprites, and
+sounds live in `assets/`. Record every third-party file in `assets/CREDITS.md` and
+prefer CC0 or CC-BY licenses. Draw SVG art at twice its on-screen size so it stays
+sharp when the game scales up. The background music is generated: edit and run
+`tools/make_music.py` (needs `numpy` and `soundfile`) to change it.
 
 Substitute your Godot executable and matching template paths. On macOS the
 executable may be `/Applications/Godot.app/Contents/MacOS/Godot`. The template

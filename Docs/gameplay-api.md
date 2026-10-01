@@ -16,8 +16,9 @@ the game asks the player to reload and sign in again.
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
 
-Starting a run returns `id`, `level_id`, `outcome`, `questions`, and
-`solved_question_ids`. The game skips solved questions when resuming. Each
+Starting a run returns `id`, `level_id`, `outcome`, `questions`,
+`solved_question_ids`, and `strikes` (failed tries so far on unsolved puzzle
+gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
 
@@ -27,6 +28,31 @@ Responses for each question type:
 {"selected_option_ids": ["opaque-option-id"]}
 {"order": ["opaque-tile-id-1", "opaque-tile-id-2"]}
 {"pairs": {"opaque-row-id": "opaque-choice-id"}}
+```
+
+Puzzle gates (`type: "puzzle"`) send the indexes of the instruction buttons the
+player pressed, in order:
+
+```json
+{"moves": [2, 0]}
+```
+
+A gate's goal is public, since the player needs it to play. The server replays
+the presses (`server/puzzles.py`), so any winning order passes. The game submits
+by itself when the register matches the goal, and also when the player uses
+every move without matching, which records a wrong attempt. Anything other than
+1 to `max_moves` valid button indexes returns 422.
+
+Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
+wrong attempt is a strike, counted since the player arrived at the gate (when
+the gate before it was solved, or when a setback sent them back to it). The
+third strike is a setback: the gate before reopens and appears again in the
+next run view, and `setback_question_id` names it. A first gate, with nothing
+before it, restarts instead and names itself. A reopened gate is graded again,
+but it earns its points only once.
+
+```json
+{"is_correct": false, "explanation": "…", "strikes": 3, "setback_question_id": "question-uuid"}
 ```
 
 The same vocabulary is used for multi-select, ordering, and matching controls.

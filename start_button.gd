@@ -1,44 +1,13 @@
 extends Button
 
 
-# Called when the node enters the scene tree for the first time.
+# The project theme styles the button; it fades in once the title has typed out.
 func _ready() -> void:
-	# Hide button initially
-	visible = false
-
-	# Set button text
 	text = "Begin Challenge"
-
-	# Center text
-	alignment = HORIZONTAL_ALIGNMENT_CENTER
-
-	# Create custom style
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0, 0, 0, 0) # Transparent background
-	style.border_color = Color.WHITE
-	style.border_width_left = 2
-	style.border_width_right = 2
-	style.border_width_top = 2
-	style.border_width_bottom = 2
-	style.corner_radius_top_left = 20
-	style.corner_radius_top_right = 20
-	style.corner_radius_bottom_left = 20
-	style.corner_radius_bottom_right = 20
-
-	add_theme_stylebox_override("normal", style)
-	add_theme_stylebox_override("hover", style)
-	add_theme_stylebox_override("pressed", style)
-
-	# White text
-	add_theme_color_override("font_color", Color.WHITE)
-	add_theme_color_override("font_hover_color", Color.WHITE)
-	add_theme_color_override("font_pressed_color", Color.WHITE)
-
-	# Wait 5 seconds then show
-	await get_tree().create_timer(5.0).timeout
-	visible = true
-
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
+	custom_minimum_size = Vector2(240, 52)
+	add_theme_font_size_override("font_size", 22)
+	modulate.a = 0.0
+	disabled = true
+	await get_tree().create_timer(4.5).timeout
+	disabled = false
+	create_tween().tween_property(self, "modulate:a", 1.0, 0.5)
