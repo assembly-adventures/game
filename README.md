@@ -1,109 +1,49 @@
-# Godot Project Setup
+# Assembly Adventures
 
-This repository contains a game developed using the **Godot Engine**. Follow the instructions below to download, open, and run the project locally.
+A Godot game for learning computer architecture, hosted on UNC CloudApps with
+CSXL Onyen login and PostgreSQL-backed progress.
 
-## Repository
+The current release includes Level 1's 13 questions. Players can retry answers,
+resume unfinished runs, and earn a saved badge after answering every question
+correctly. Other levels are inactive. Verified Onyen and PID are retained for
+roster use; PID stays out of game responses and session cookies. Grading and
+badge awards happen on the server.
 
-**GitHub Link:**
-[Repo Link](https://github.com/godondi/assembly-adventures.git)
+[Play the hosted game](https://assembly-adventures-teddyt.apps.cloudapps.unc.edu/)
+(requires UNC login). The current CloudApps namespace is `teddyt`.
 
-## Requirements
-
-Before running the project, make sure you have:
-
-* **Godot Engine** installed
-* **Git** installed if you plan to clone the repository
-* A computer that meets Godot's system requirements
-
-This project is intended to run using **Godot 4.x**.
-
-## 1. Clone the Repository
-
-Open a terminal and run:
+## Start developing
 
 ```bash
-git clone [INSERT GITHUB REPOSITORY LINK HERE]
+git clone https://github.com/godondi/assembly-adventures.git
+cd assembly-adventures
 ```
 
-Then navigate into the project directory:
+Use **Godot 4.7.2**, matching web export templates, **Python 3.12**, and
+**PostgreSQL 16** (Docker is convenient for a separate local database).
+Import `project.godot` in Godot and wait for asset imports to finish.
+`F5` starts the project at `start_page.tscn`; `F6` previews the current scene.
+Desktop scene previews do not have a UNC browser session, so saved gameplay
+requires the web build and authenticated API.
 
-```bash
-cd [REPOSITORY-NAME]
-```
+Follow the [developer guide](Docs/development.md) for a runnable local database
+setup, tests, environment variables, code map, and contribution workflow.
 
-Alternatively, you can download the repository as a ZIP file from GitHub and extract it to your computer.
+## Documentation
 
-## 2. Open the Project in Godot
+| Guide | Use it for |
+| --- | --- |
+| [Developer onboarding](Docs/development.md) | Local setup, architecture, testing, and common changes |
+| [Deployment and operations](infra/README.md) | Exporting, CloudApps login, migrations, backups, and namespace moves |
+| [Gameplay API](Docs/gameplay-api.md) | Authentication, answer formats, retries, and error responses |
+| [Database schema](Docs/schema.md) | Tables, snapshots, question authoring, and migration rules |
+| [Legacy question bank](Docs/questionBankDocs.md) | Understanding the original `questions.json` import format |
 
-1. Open **Godot Engine**.
-2. From the **Project Manager**, click **Import**.
-3. Navigate to the cloned or downloaded repository.
-4. Select the `project.godot` file.
-5. Click **Import & Edit**.
+The database is the runtime question source. `questions.json` is historical
+bootstrap input, not the game's content feed. Apply database changes with
+`python -m server.database`; never rerun seeds manually on an existing database
+or edit migration files that have already been deployed.
 
-Godot should automatically recognize the project and load its files.
-
-## 3. Run the Project
-
-Once the project is open:
-
-1. Allow Godot to finish importing any assets.
-2. Click the **Run Project** button in the upper-right corner of the editor.
-
-You can also press:
-
-```text
-F6 – Run the current scene
-F5 – Run the entire project
-```
-
-If Godot asks you to select a main scene, choose the project's starting scene.
-
-## Troubleshooting
-
-
-### Assets are missing
-
-Wait for Godot to finish importing all project assets. If necessary, close and reopen the project.
-
-### Project opens with errors
-
-Make sure you are using the correct version of Godot. Projects created with Godot 4 may not work correctly in Godot 3.
-
-### Repository was cloned but the game will not run
-
-Make sure all repository files were downloaded successfully:
-
-```bash
-git pull
-```
-
-Then reopen the project in Godot.
-
-## Updating Your Local Repository
-
-If you have already cloned the project and want to retrieve the latest changes, navigate to the repository and run:
-
-```bash
-git pull
-```
-
-## Development
-
-When making changes, create a new branch when appropriate:
-
-```bash
-git checkout -b your-branch-name
-```
-
-After making changes:
-
-```bash
-git add .
-git commit -m "Describe your changes"
-git push
-```
-
-## Notes
-
-Do not commit Godot-generated cache or temporary files unless they are specifically required by the project. The repository's `.gitignore` file should handle these files automatically.
+Before submitting changes, run the checks relevant to your work in the developer
+guide and review `git diff`. Keep credentials, roster data, database dumps,
+`.godot/`, and generated `build/` output out of commits.
