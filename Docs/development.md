@@ -1,6 +1,6 @@
 # Developer guide
 
-This guide describes the current Level 1 release. Run commands from the repository
+This guide describes the current release, with Levels 1 and 2. Run commands from the repository
 root. See [deployment operations](../infra/README.md) for the hosted environment.
 
 ## Prerequisites
@@ -115,10 +115,13 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | Location | Responsibility |
 | --- | --- |
 | `start_page.tscn`, `intro_animation.tscn` | Opening screens |
-| `control_center.gd` | Loads saved profile and level availability; opens Level 1 |
-| `player_data.gd` | Same-origin HTTP requests, profile cache, retry IDs, profile-change signal |
-| `badges_container.gd` | Renders earned badges from the cached server profile |
-| `levels/level_1/risc_v_level.gd` | Question controls, answer submission, resume, completion |
+| `control_center.gd` | Loads saved profile and level availability; opens each playable level |
+| `player_data.gd` | Same-origin HTTP requests, profile cache, retry IDs, profile-change signal, guest mode |
+| `levels/gate_level.gd` | Runs a level's gates: answer submission, strikes and setbacks, resume, completion; each level's scene sets its ID and badge |
+| `levels/level_1/puzzle_room.gd`, `levels/level_2/maze_room.gd`, `levels/level_2/code_room.gd` | One gate's puzzle for each payload kind (`moves`, `maze`, `code`), with a client copy of the grader for guest mode |
+| `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading Level 2's assembly lines; ABI register names and their x-names |
+| `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
+| `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
 | `server/app.py` | CSXL callback verification, signed session, protected static files |
 | `server/api.py` | Request validation, authenticated endpoints, POST origin/header checks |
 | `server/gameplay.py` | Transactions, owned runs, attempt history, profile, badge awards |
@@ -196,8 +199,9 @@ Do not remove ledger rows to force changed SQL through.
 
 Database activation alone is insufficient. Add the question content and badge,
 implement and connect the scene from `control_center.gd`, and verify its question
-types and completion rule. Only Level 1 is currently wired in the control center;
-only `all_correct` is implemented by the server. Test resume, retries, completion,
+types and completion rule. Levels 1 and 2 are wired in the control center; a
+puzzle level can reuse `levels/gate_level.gd` with a new room for its payload kind.
+Only `all_correct` is implemented by the server. Test resume, retries, completion,
 and badge restoration before activating a level in production.
 
 ## Before handing off or deploying
@@ -230,4 +234,4 @@ access-controlled destination. There is no scheduled backup job in this repo.
 | API returns 503 | Check database availability and migration logs; avoid logging identity-bearing exceptions |
 | New questions do not appear in a resumed run | Expected: run snapshots are immutable; complete that run before starting another |
 | Applied migration checksum changed | Restore the applied file and put the change in a new migration |
-| Badge progress shows 100% after Level 1 | Only one badge is active; progress is based on active badges |
+| Badge progress shows 50% after Level 1 | Expected: two badges are active (Levels 1 and 2); progress is based on active badges |

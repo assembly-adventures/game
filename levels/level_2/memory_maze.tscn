@@ -1,0 +1,15 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://levels/gate_level.gd" id="1_gate"]
+
+[node name="MemoryMaze" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_gate")
+level_id = 2
+badge_icon = "res://images/memory_maze.svg"
+finish_line = "The robot found its way out of the Memory Maze and the Chip Chomper ran off. Memory Master!"

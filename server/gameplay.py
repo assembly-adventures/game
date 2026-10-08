@@ -1,5 +1,6 @@
 """Transactional level runs, attempt history, setbacks, and earned badges."""
 
+import secrets
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -107,20 +108,36 @@ def start_run(onyen: str, level_id: int) -> dict:
                               (who["id"], level_id)).fetchone()
         if active:
             return run_view(conn, active)
-        questions = conn.execute("SELECT * FROM aa.questions WHERE level_id=%s AND is_active ORDER BY ordinal",
-                                 (level_id,)).fetchall()
+        questions = draw(level, conn.execute("SELECT * FROM aa.questions WHERE level_id=%s AND is_active ORDER BY ordinal",
+                                             (level_id,)).fetchall())
         if not questions:
             raise HTTPException(409, "No questions are available for this level.")
         run = conn.execute("""INSERT INTO aa.level_runs(player_id,level_id,questions_total)
             VALUES (%s,%s,%s) RETURNING *""", (who["id"], level_id, len(questions))).fetchone()
-        for question in questions:
+        # A run's ordinals are its own order, 1 to n, since a drawn run skips some of the bank.
+        for position, question in enumerate(questions, 1):
             public, solution = snapshot(question)
             conn.execute("""INSERT INTO aa.run_questions
                 (run_id,question_id,ordinal,public_question,solution,explanation,points)
                 VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                (run["id"], question["id"], question["ordinal"], Jsonb(public), Jsonb(solution),
+                (run["id"], question["id"], position, Jsonb(public), Jsonb(solution),
                  question["explanation"], question["points"]))
         return run_view(conn, run)
+
+
+def draw(level: dict, questions: list[dict]) -> list[dict]:
+    """The questions a new run plays. Without a draw rule that is every active question, in
+    order. A rule lists pools in order; each pool gives all its questions, or `take` of them chosen
+    at random, kept in ordinal order."""
+    if not level.get("draw"):
+        return questions
+    picked = []
+    for slot in level["draw"]:
+        pool = [question for question in questions if question["pool"] == slot["pool"]]
+        take = min(slot.get("take", len(pool)), len(pool))
+        chosen = {question["id"] for question in secrets.SystemRandom().sample(pool, take)}
+        picked += [question for question in pool if question["id"] in chosen]
+    return picked
 
 
 def owned_run(conn, who: dict, run_id: UUID) -> dict:

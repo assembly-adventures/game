@@ -1,9 +1,9 @@
 [
  {
   "ordinal": 1,
-  "prompt": "Tap an instruction to run it on register x5. Make x5's bulbs match the target pattern to open the gate.",
+  "prompt": "Tap an instruction to run it on register t0. Make t0's bulbs match the target pattern to open the gate.",
   "hint": "Press +1 once.",
-  "explanation": "addi x5, x5, 1 adds an immediate (a constant) to a register. The rightmost bulb is worth 1.",
+  "explanation": "addi t0, t0, 1 adds an immediate (a constant) to a register. The rightmost bulb is worth 1.",
   "payload": {
    "kind": "moves",
    "width": 8,
@@ -88,7 +88,7 @@
  },
  {
   "ordinal": 4,
-  "prompt": "Register x6 is holding 3. add x5, x5, x6 adds whatever x6 holds to x5.",
+  "prompt": "Register t1 is holding 3. add t0, t0, t1 adds whatever t1 holds to t0.",
   "hint": "Try to reach 5 first, then double it.",
   "explanation": "add reads two registers: 2 + 3 = 5, shifting gives 10, and 10 + 3 = 13.",
   "payload": {

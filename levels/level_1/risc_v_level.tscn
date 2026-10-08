@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://d1k80uj33ddae"]
 
-[ext_resource type="Script" path="res://levels/level_1/risc_v_level.gd" id="1_quiz"]
+[ext_resource type="Script" path="res://levels/gate_level.gd" id="1_gate"]
 
 [node name="RiscVLevel" type="Control"]
 layout_mode = 3
@@ -9,4 +9,4 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_quiz")
+script = ExtResource("1_gate")

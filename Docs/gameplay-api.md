@@ -12,7 +12,7 @@ the game asks the player to reload and sign in again.
 | --- | --- |
 | `GET /api/me` | Onyen, active earned badges, badge total, and progress ratio |
 | `GET /api/levels` | Availability, question counts, and completion flags |
-| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active level 1 run |
+| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 or 2) |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
 
@@ -21,6 +21,9 @@ Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
+A level with a draw rule (Level 2) draws its questions from a bank when a run
+starts. The run keeps that draw, in order, until it finishes, so resuming shows
+the same rooms; the next run draws again.
 
 Responses for each question type:
 
@@ -42,6 +45,37 @@ the presses (`server/puzzles.py`), so any winning order passes. The game submits
 by itself when the register matches the goal, and also when the player uses
 every move without matching, which records a wrong attempt. Anything other than
 1 to `max_moves` valid button indexes returns 422.
+
+Level 2's maze rooms send the program the player wrote, one RISC-V line per
+action, exactly as the game shows it. Registers use their ABI names (`a0`,
+`t0`); the server also accepts x-names (`x10`, `x5`):
+
+```json
+{"program": ["loop:", "lw t0, 0(a0)", "sw t0, 28(a0)", "addi a0, a0, 4", "blt a0, a1, loop"]}
+```
+
+Every line must be one the room offers (a step to a neighbouring cell, a load
+or store with one of its registers at an offset that lands in the room, or one
+of its keys). The `loop:` label is a line but not
+an instruction, so a program may hold `max_moves` instructions plus one label.
+Any other line, more than one label, or a branch above the label returns 422. A
+program that would fault (walking into a wall or a locked door, or a loop that
+never ends) is graded as a wrong attempt; the game refuses those actions
+itself, so it never sends one. Attempts keep the program, so instructors can
+read what students wrote.
+
+Level 2's code rooms send the line picked for each blank, in program order:
+
+```json
+{"blanks": ["slli t3, t2, 2", "lw t5, 4(t3)"]}
+```
+
+Each line must be one of that blank's choices, and every blank needs one;
+anything else returns 422. The server runs the program on each of the room's
+tests, and it is correct only if every test passes. A program that crashes (a
+jump to where there is no code, a load or store outside the room's memory or
+off a word boundary, or a loop that never ends) fails that test. Each run the
+player starts is one attempt, so a wrong run is a strike.
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when

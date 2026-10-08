@@ -31,7 +31,7 @@ The schema exists to make three things possible:
 
 ## Current implementation
 
-The deployed API and game now implement level 1 with 10 puzzle gates, saved
+The API and game implement levels 1 and 2, each with 10 puzzle gates, saved
 attempts, resume, and badges. Other levels are inactive. CSXL verifies Onyen and
 PID at login; no proxy identity headers are trusted. PID stays server-side.
 See [gameplay-api.md](gameplay-api.md) for the implemented request contract.
@@ -105,15 +105,28 @@ query — nothing already built has to change.
 | `slug` | `level_1` … `level_challenge`, matching the question bank keys |
 | `scene_path` | `res://levels/…`, replacing the hardcoded routing table |
 | `completion_rule` | `jsonb` — what it takes to pass |
+| `draw` | `jsonb`, optional — how a run picks its questions from the level's pools |
 | `is_active` | `false` for levels that are still stubs |
 
-`scene_path` is stored as metadata. The current client routes Level 1 explicitly
-in `control_center.gd`; it does not dynamically load scenes from this column.
+`scene_path` is stored as metadata. The current client routes Levels 1 and 2
+explicitly in `control_center.gd`; it does not dynamically load scenes from this
+column.
 
 The only implemented completion rule is `{"type": "all_correct"}`. Other rules
 require server and client work before activation. Migration `0004_gameplay.sql`
-leaves only Level 1 active, even though historical seeds contain additional
-levels and questions.
+left only Level 1 active, even though historical seeds contain additional
+levels and questions; `0007` activates Level 2.
+
+Without a `draw` rule, a run plays every active question in ordinal order. A
+rule lists pools (`questions.pool`) in order. Each pool gives all its active
+questions, or `take` of them chosen at random, kept in ordinal order. Level 2's
+rule plays 10 of its 16 rooms: the four tutorial rooms, one memory, one
+branches, and one loops room, both procedure rooms, and the race:
+
+```json
+[{"pool": "tutorial"}, {"pool": "memory", "take": 1}, {"pool": "branches", "take": 1},
+ {"pool": "loops", "take": 1}, {"pool": "procedures"}, {"pool": "finale"}]
+```
 
 ### `aa.badges`
 
@@ -132,7 +145,9 @@ progress key in the running game.
 
 One table for all four question types, with the type-specific parts in a
 `payload jsonb` column. Shared columns cover `prompt`, `code_snippet`, `hint`,
-`explanation`, `points`, `difficulty`, and `ordinal`.
+`explanation`, `points`, `difficulty`, and `ordinal`. `pool` (added in `0007`)
+names the group a level's draw rule picks from; it is null for levels without
+one.
 
 `code_snippet` exists because the source bank jams multi-line assembly into the
 prompt with `\n`. Splitting it lets the UI monospace the code and leave the
@@ -161,13 +176,37 @@ pick" unanswerable.
 ```
 
 ```jsonc
-// puzzle — each button is a fixed instruction; the player presses them in any order
+// puzzle, Level 1 — each button is a fixed instruction; the player presses them in any order
 {"kind": "moves", "width": 8, "display": "signed",
  "initial": {"x5": 0}, "goal": {"x5": -96},
  "buttons": [{"op": "addi", "rd": 5, "rs1": 5, "imm": 64},
              {"op": "addi", "rd": 5, "rs1": 5, "imm": 32}],
  "max_moves": 4, "par": 3}
+
+// puzzle, Level 2 — a room of memory words the robot walks through, in row-major order
+{"kind": "maze", "base": 16384,
+ "map": ["S..D.E"],
+ "values": {"0x4000": 5, "0x4004": 90, "0x4008": 100, "0x400c": 40, "0x4010": 11},
+ "doors": {"0x400c": 8}, "hands": ["t2"], "registers": {"t2": 8},
+ "arrays": [{"name": "arr", "at": "0x4000", "length": 5}],
+ "goal": {},
+ "max_moves": 8, "par": 6}
+
+// puzzle, Level 2 — a short program with blanks to fill, run on every test
+{"kind": "code",
+ "code": [{"line": "slti t0, a0, 5"},
+          {"blank": ["bne t0, x0, else", "beq t0, x0, else"]},
+          {"line": "addi a1, a1, 3"},
+          {"blank": ["j done", "addi x0, x0, 0", "j else"]},
+          {"label": "else"}, {"line": "slli a1, a1, 1"}, {"label": "done"}],
+ "names": {"a0": "x", "a1": "y"},
+ "tests": [{"registers": {"a0": 3, "a1": 4}, "expect": {"registers": {"a1": 7}}},
+           {"registers": {"a0": 7, "a1": 4}, "expect": {"registers": {"a1": 8}}}]}
 ```
+
+Registers go by their ABI names (`a0`, `t1`, `sp`, `ra`; `x0` stays `x0`, as the
+course writes it). The server also accepts x-names, which Level 1's payload keys
+still use.
 
 Puzzle goals are not secret: the whole payload is the public snapshot, and the
 private `solution` is a copy that grading reads. `server/puzzles.py` replays the
@@ -176,12 +215,59 @@ any winning order passes. `display` (`unsigned`, `signed` or `hex`) only changes
 how the game shows values; goals may be negative. `par` is the fewest presses
 that open the gate and earns full stars. The question's `hint` column is included
 in run snapshots so the game can offer it. `server/test_puzzles.py`
-brute-forces every Level 1 gate to check that it opens within `max_moves` and
-that `par` is the true minimum.
+brute-forces every gate to check that it opens within `max_moves` and that `par`
+is the true minimum.
+
+Maze rooms (`kind: "maze"`) are grids of 32-bit memory words in row-major
+order: the word at row *r*, column *c* of `map` is at `base + 4*(r*width + c)`.
+The map marks walls (`#`, protected memory), floor (`.`), the start (`S`), the
+exit (`E`), doors (`D`, words that can be walked through only while they hold
+their code in `doors`), and glass (`B`, words in reach that can't be stood on).
+`values` (nonzero starting words), `doors`, and `goal.memory` are keyed by hex
+address. `a0` is the robot's address. The player's actions are RISC-V lines: a
+step (`addi a0, a0, ±4` or `±4*width`, one cell at a time), `lw`/`sw` with one
+of the room's `hands` at any offset that lands on a word of the room (base +
+offset, as a 12-bit offset would reach), and, in teaching rooms (`loop`), the
+`loop:` label and the room's `repeat` branches, which jump back to it. `keys`
+can add other instructions, and `registers` sets extra starting registers.
+`arrays` (names for runs of words, like `arr[3]`) and `names` (nicknames for
+registers, like `i`) only label the screen. In the race, `chomper` zeroes the first `words` words of its `row`,
+one every `every` instructions from instruction `start`. A room is solved when
+the robot ends on the exit (if there is one) and every `goal.registers` and
+`goal.memory` value holds; `max_moves` and `par` count instructions, not the
+label. A program that faults (walking into a wall, glass, a locked door, or out
+of the room; loading or storing a wall or past the room; more than 200 executed
+instructions) is graded wrong, and the game refuses such actions before they are
+ever submitted. The rooms follow Lecture 4: they start at `0x4000` and reuse its
+example array and sum loop.
+The C a room translates is in `code_snippet`.
+
+Code rooms (`kind: "code"`) are short programs with blank lines. `code` lists
+the program in order: lines, `label`s, and `blank`s, each blank with the lines a
+player can pick for it. Instructions are assembled from `0x100`, 4 bytes apart;
+labels take the address of the next instruction. `data` blocks are laid out from
+`data.base` (`0x2000`), each label naming its first word; `stack` gives `sp`'s
+starting `top` (`0x7FF0`) and the number of `words` below it, which hold junk
+(`0xDEADBEEF`) until something is saved there. `ra` starts at `0x400`, standing
+for main's caller, so a program ends when it returns there or runs past its last
+line. `registers` sets starting registers for every test (a data label's name
+stands for its address), and each test adds its own `registers`. A test passes
+when every `expect.registers` value and `expect.memory` word (named like
+`arr[2]`, or `result` for a label's first word) holds, and, with
+`expect.returned`, the program ended by returning to `0x400`. A jump to where
+there is no code, a load or store outside the room's memory or off a word
+boundary, or more than 500 executed instructions fails the test. `names` only
+label the screen. `server/test_puzzles.py` checks that exactly one filling of
+each room's blanks passes.
 
 Level 1 is made entirely of puzzle gates (`0005_level1_puzzles.sql`); its
-original 13 quiz questions are retired. Guest mode plays from a copy in
-`levels/level_1/guest_rooms.json`, which a gameplay test keeps in sync. Level
+original 13 quiz questions are retired. Level 2, the Memory Maze
+(`0007_level2_memory_maze.sql`), replaced the placeholder "Opcode" level.
+`0008_abi_register_names.sql` rewrites the x-names in Level 1's prompts, hints,
+and explanations to ABI names (`t0`, `t1`). Guest mode plays from copies in
+`levels/level_1/guest_rooms.json` and `levels/level_2/guest_rooms.json` (Level
+2's holds its whole bank and draw rule, and guest mode draws the same way),
+which a gameplay test keeps in sync. Level
 ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 
 Drag-and-drop tiles are **stored in a scrambled order** so the seed file does
@@ -216,9 +302,11 @@ and `score`, marks the run passed, and awards its badge.
 
 Added in migration `0004_gameplay.sql`. Each `(run_id, question_id)` stores an
 immutable `public_question`, private `solution`, `explanation`, `points`, and
-`ordinal`. Public options and matching choices use fresh opaque IDs per run;
-source IDs and correct pair mappings are not exposed. Editing the question bank
-does not alter an active run's text or grading.
+`ordinal`, the question's position in that run (1 to n): a drawn run skips part
+of the bank, so it is not the bank's ordinal. Public options and matching
+choices use fresh opaque IDs per run; source IDs and correct pair mappings are
+not exposed. Editing the question bank does not alter an active run's text or
+grading.
 
 ### `aa.question_attempts`
 
@@ -229,7 +317,9 @@ run (`attempt_no`). `response` mirrors the payload vocabulary, in ids:
 {"selected_option_ids": ["opaque-option-id"]}          // multiple_choice
 {"order": ["opaque-tile-id-2", "opaque-tile-id-1"]}            // drag_and_drop
 {"pairs": {"opaque-row-id": "opaque-choice-id"}}      // matching
-{"moves": [1, 0, 0]}                                  // puzzle: buttons pressed, in order
+{"moves": [1, 0, 0]}                                  // puzzle, Level 1: buttons pressed, in order
+{"program": ["loop:", "addi a0, a0, 4", "bne a0, a1, loop"]}  // puzzle, Level 2 maze room: the program, one line per action
+{"blanks": ["beq t0, x0, else", "j done"]}           // puzzle, Level 2 code room: the line picked for each blank
 ```
 
 `player_id` is redundant with `run_id → level_runs.player_id`. It is kept so

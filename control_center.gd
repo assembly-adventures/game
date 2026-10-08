@@ -14,7 +14,8 @@ const GRAYSCALE := preload("res://badge_grayscale.gdshader")
 const LEVELS := [
 	{"id": 1, "name": "Basic RISC-V Commands", "at": Vector2(0.2, 0.22), "badge": "badge_1", "icon": "res://images/1.svg",
 		"scene": "res://levels/level_1/risc_v_level.tscn"},
-	{"id": 2, "name": "Opcode", "at": Vector2(0.5, 0.22), "badge": "badge_2", "icon": "res://images/2.svg"},
+	{"id": 2, "name": "Memory Maze", "at": Vector2(0.5, 0.22), "badge": "badge_2", "icon": "res://images/memory_maze.svg",
+		"scene": "res://levels/level_2/memory_maze.tscn"},
 	{"id": 3, "name": "Pipelining", "at": Vector2(0.8, 0.22), "badge": "badge_3", "icon": "res://images/3.svg"},
 	{"id": 4, "name": "The Stack", "at": Vector2(0.8, 0.74), "badge": "badge_4", "icon": "res://images/4.svg"},
 	{"id": 5, "name": "Code Tracing", "at": Vector2(0.5, 0.74), "badge": "badge_5", "icon": "res://images/5.svg"},
@@ -137,7 +138,7 @@ func _load_profile() -> void:
 		chips[level.id].set_state(active.get(level.id, false) and level.has("scene"), done)
 	board.place_characters()
 	if PlayerData.guest:
-		status_label.text = "Guest mode: Level 1 only. Progress resets when you reload."
+		status_label.text = "Guest mode: Levels 1 and 2. Progress resets when you reload."
 	else:
 		status_label.text = "Progress is saved to your UNC account."
 	_update_progress()

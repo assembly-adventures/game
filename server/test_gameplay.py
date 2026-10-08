@@ -14,22 +14,17 @@ from itsdangerous import URLSafeTimedSerializer
 
 from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
-from server.gameplay import register_player, replay
+from server.gameplay import draw, register_player, replay
+from server.test_puzzles import BANK, SOLUTIONS, answer
 
 
-# One winning sequence of button presses per Level 1 gate, keyed by ordinal
-# (db/migrations/0005_level1_puzzles.sql).
+# One winning response per gate, keyed by level and bank ordinal: button presses for Level 1
+# (db/migrations/0005_level1_puzzles.sql), and programs or filled blanks for Level 2 (0007).
 REFERENCE = {
-    1: {"moves": [0]},
-    2: {"moves": [0, 0, 0]},
-    3: {"moves": [1, 0]},
-    4: {"moves": [0, 1, 0]},
-    5: {"moves": [2, 0]},
-    6: {"moves": [0, 1]},
-    7: {"moves": [0, 1]},
-    8: {"moves": [0, 1]},
-    9: {"moves": [0, 0, 1]},
-    10: {"moves": [1, 1, 1]},
+    1: {ordinal: {"moves": moves} for ordinal, moves in {
+        1: [0], 2: [0, 0, 0], 3: [1, 0], 4: [0, 1, 0], 5: [2, 0], 6: [0, 1], 7: [0, 1], 8: [0, 1], 9: [0, 0, 1],
+        10: [1, 1, 1]}.items()},
+    2: {ordinal: answer(ordinal) for ordinal in SOLUTIONS},
 }
 
 
@@ -45,6 +40,20 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5}), (set(), {"a": 0, "b": 3}))
         attempts += self.log((4, "a", False), (5, "a", True))
         self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5}), ({"a"}, {"a": 1, "b": 0}))
+
+    def test_draws_follow_the_pools_and_vary(self):
+        bank = [{"id": room["ordinal"], "ordinal": room["ordinal"], "pool": room["pool"]} for room in BANK["rooms"]]
+        level = {"draw": BANK["draw"]}
+        runs = [[question["ordinal"] for question in draw(level, bank)] for _ in range(60)]
+        for ordinals in runs:
+            self.assertEqual(len(ordinals), 10)
+            self.assertEqual(ordinals[:4], [1, 2, 3, 4])  # The tutorial, in order.
+            self.assertEqual(ordinals[7:], [14, 15, 16])  # Both procedure rooms, then the race.
+            self.assertIn(ordinals[4], [5, 6, 7, 8])
+            self.assertIn(ordinals[5], [9, 10])
+            self.assertIn(ordinals[6], [11, 12, 13])
+        self.assertGreater(len({tuple(ordinals) for ordinals in runs}), 5)
+        self.assertEqual(draw({"draw": None}, bank), bank)
 
     def test_strikes_count_only_since_the_player_arrived(self):
         attempts = self.log((0, "a", False), (1, "a", False), (2, "a", True), (3, "b", True))
@@ -84,16 +93,16 @@ class GameplayTests(unittest.TestCase):
     def post(self, path, body=None):
         return self.client.post('/api' + path, json=body or {}, headers={"X-AA-Request": "1", "Origin": "https://game.example"})
 
-    def start(self):
-        result = self.post('/runs', {"level_id": 1})
+    def start(self, level_id=1):
+        result = self.post('/runs', {"level_id": level_id})
         self.assertEqual(result.status_code, 200, result.text)
         return result.json()
 
     def solution(self, run_id, question):
         with connect() as conn:
-            row = conn.execute("SELECT ordinal FROM aa.run_questions WHERE run_id=%s AND question_id=%s",
-                               (run_id, question['id'])).fetchone()
-        return REFERENCE[row['ordinal']]
+            row = conn.execute("""SELECT q.ordinal,q.level_id FROM aa.questions q WHERE q.id=%s""",
+                               (question['id'],)).fetchone()
+        return REFERENCE[row['level_id']][row['ordinal']]
 
     def answer(self, run_id, question, response, request_id=None):
         return self.post(f'/runs/{run_id}/attempts', {"question_id": question['id'],
@@ -123,7 +132,8 @@ class GameplayTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200, result.text)
             self.assertEqual(result.json()['badges'][0]['slug'], 'badge_1')
         profile = self.client.get('/api/me').json()
-        self.assertEqual(profile['progress_ratio'], 1.0)
+        # One of the two active badges (levels 1 and 2).
+        self.assertEqual((profile['progress_ratio'], profile['badges_total']), (0.5, 2))
         self.assertNotIn('pid', profile)
         with connect() as conn:
             self.assertEqual(conn.execute('SELECT count(*) AS n FROM aa.question_attempts WHERE run_id=%s', (run['id'],)).fetchone()['n'], 11)
@@ -182,12 +192,19 @@ class GameplayTests(unittest.TestCase):
             self.assertEqual(row, {'n':1,'points':1})
 
     def test_guest_rooms_match_the_database(self):
-        # Guest mode plays from a copy of the rooms, so it must not drift from 0005.
-        guest = json.loads(Path(__file__).parents[1].joinpath('levels/level_1/guest_rooms.json').read_text())
-        with connect() as conn:
-            rows = conn.execute("""SELECT ordinal,prompt,hint,explanation,payload FROM aa.questions
-                WHERE level_id=1 AND is_active ORDER BY ordinal""").fetchall()
-        self.assertEqual(guest, [dict(row) for row in rows])
+        # Guest mode plays from copies of the rooms (and the draw rule), so they must not drift
+        # from the migrations.
+        for level in (1, 2):
+            guest = json.loads(Path(__file__).parents[1].joinpath(f'levels/level_{level}/guest_rooms.json').read_text())
+            rooms = guest['rooms'] if isinstance(guest, dict) else guest
+            with connect() as conn:
+                rows = conn.execute("""SELECT ordinal,pool,prompt,code_snippet,hint,explanation,payload FROM aa.questions
+                    WHERE level_id=%s AND is_active ORDER BY ordinal""", (level,)).fetchall()
+                rule = conn.execute('SELECT draw FROM aa.levels WHERE id=%s', (level,)).fetchone()['draw']
+            with self.subTest(level=level):
+                self.assertEqual([dict(room, code_snippet=room.get('code_snippet'), pool=room.get('pool')) for room in rooms],
+                                 [dict(row) for row in rows])
+                self.assertEqual(guest.get('draw') if isinstance(guest, dict) else None, rule)
 
     def test_gates_accept_any_winning_order_and_reject_bad_presses(self):
         run = self.start()
@@ -235,6 +252,45 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(self.start()['strikes'], {})
         self.assertEqual(self.answer(run['id'], first, {'moves': [0, 0]}).json()['strikes'], 1)
         self.assertEqual(self.start()['strikes'], {first['id']: 1})
+
+    def test_memory_maze_draws_ten_rooms_and_awards_its_badge(self):
+        run = self.start(2)
+        self.assertNotEqual(run['id'], self.start()['id'])
+        self.assertEqual(self.start(2)['id'], run['id'])  # Resuming keeps the rooms it drew.
+        rooms = run['questions']
+        with connect() as conn:
+            bank = {str(row['id']): row['ordinal'] for row in conn.execute(
+                'SELECT id,ordinal FROM aa.questions WHERE level_id=2 AND is_active').fetchall()}
+        ordinals = [bank[room['id']] for room in rooms]
+        self.assertEqual(len(rooms), 10)
+        self.assertEqual(ordinals[:4] + ordinals[7:], [1, 2, 3, 4, 14, 15, 16])
+        self.assertEqual((rooms[0]['payload']['map'], rooms[1]['code_snippet']), (['S...E'], 'a2 = arr[3];'))
+        # A step into a wall is a wrong answer (and a strike); a line the room doesn't offer is malformed.
+        result = self.answer(run['id'], rooms[0], {'program': ['addi a0, a0, -4']}).json()
+        self.assertEqual((result['is_correct'], result['strikes']), (False, 1))
+        self.assertEqual(self.answer(run['id'], rooms[3], {'program': ['addi a0, a0, 8']}).status_code, 422)
+        # Stack frames: restoring a0 before storing func's answer is wrong; a missing blank is malformed.
+        frame = rooms[8]
+        wrong = self.answer(run['id'], frame, {'blanks': ['addi sp, sp, -8', 'sw ra, 4(sp)', 'lw a0, 0(sp)']}).json()
+        self.assertFalse(wrong['is_correct'])
+        self.assertEqual(self.answer(run['id'], frame, {'blanks': ['addi sp, sp, -8']}).status_code, 422)
+        for room in rooms:
+            result = self.answer(run['id'], room, self.solution(run['id'], room))
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertTrue(result.json()['is_correct'], room['prompt'])
+        finished = self.post(f"/runs/{run['id']}/finish")
+        self.assertEqual(finished.status_code, 200, finished.text)
+        self.assertEqual([badge['slug'] for badge in finished.json()['badges']], ['badge_2'])
+        levels = {level['id']: level for level in self.client.get('/api/levels').json()}
+        self.assertEqual((levels[2]['name'], levels[2]['completed'], levels[1]['completed']), ('Memory Maze', True, False))
+        with connect() as conn:
+            saved = conn.execute("""SELECT response FROM aa.question_attempts WHERE run_id=%s AND question_id=%s
+                AND is_correct""", (run['id'], frame['id'])).fetchone()
+        self.assertEqual(saved['response'], {'blanks': SOLUTIONS[15]})  # Attempts keep what the student chose.
+
+    def test_level_one_reads_abi_register_names(self):
+        run = self.start()
+        self.assertEqual(run['questions'][3]['prompt'], 'Register t1 is holding 3. add t0, t0, t1 adds whatever t1 holds to t0.')
 
 if __name__ == '__main__':
     unittest.main()
