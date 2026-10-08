@@ -15,16 +15,19 @@ from itsdangerous import URLSafeTimedSerializer
 from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
 from server.gameplay import draw, register_player, replay
+from server.test_call_stack import ROOM as TOWER, SOLUTIONS as TOWER_SOLUTIONS
 from server.test_puzzles import BANK, SOLUTIONS, answer
 
 
 # One winning response per gate, keyed by level and bank ordinal: button presses for Level 1
-# (db/migrations/0005_level1_puzzles.sql), and programs or filled blanks for Level 2 (0007).
+# (db/migrations/0005_level1_puzzles.sql), programs or filled blanks for Level 2 (0007), and
+# frames, typed values, or verdicts for Level 3 (0009).
 REFERENCE = {
     1: {ordinal: {"moves": moves} for ordinal, moves in {
         1: [0], 2: [0, 0, 0], 3: [1, 0], 4: [0, 1, 0], 5: [2, 0], 6: [0, 1], 7: [0, 1], 8: [0, 1], 9: [0, 0, 1],
         10: [1, 1, 1]}.items()},
     2: {ordinal: answer(ordinal) for ordinal in SOLUTIONS},
+    3: TOWER_SOLUTIONS,
 }
 
 
@@ -132,8 +135,8 @@ class GameplayTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200, result.text)
             self.assertEqual(result.json()['badges'][0]['slug'], 'badge_1')
         profile = self.client.get('/api/me').json()
-        # One of the two active badges (levels 1 and 2).
-        self.assertEqual((profile['progress_ratio'], profile['badges_total']), (0.5, 2))
+        # One of the three active badges (levels 1 to 3).
+        self.assertEqual((round(profile['progress_ratio'], 4), profile['badges_total']), (0.3333, 3))
         self.assertNotIn('pid', profile)
         with connect() as conn:
             self.assertEqual(conn.execute('SELECT count(*) AS n FROM aa.question_attempts WHERE run_id=%s', (run['id'],)).fetchone()['n'], 11)
@@ -194,7 +197,7 @@ class GameplayTests(unittest.TestCase):
     def test_guest_rooms_match_the_database(self):
         # Guest mode plays from copies of the rooms (and the draw rule), so they must not drift
         # from the migrations.
-        for level in (1, 2):
+        for level in (1, 2, 3):
             guest = json.loads(Path(__file__).parents[1].joinpath(f'levels/level_{level}/guest_rooms.json').read_text())
             rooms = guest['rooms'] if isinstance(guest, dict) else guest
             with connect() as conn:
@@ -287,6 +290,34 @@ class GameplayTests(unittest.TestCase):
             saved = conn.execute("""SELECT response FROM aa.question_attempts WHERE run_id=%s AND question_id=%s
                 AND is_correct""", (run['id'], frame['id'])).fetchone()
         self.assertEqual(saved['response'], {'blanks': SOLUTIONS[15]})  # Attempts keep what the student chose.
+
+    def test_call_stack_tower_draws_ten_rooms_keeps_verdicts_private_and_awards_its_badge(self):
+        run = self.start(3)
+        rooms = run['questions']
+        with connect() as conn:
+            bank = {str(row['id']): row['ordinal'] for row in conn.execute(
+                'SELECT id,ordinal FROM aa.questions WHERE level_id=3 AND is_active').fetchall()}
+        ordinals = [bank[room['id']] for room in rooms]
+        self.assertEqual(len(rooms), 10)
+        self.assertEqual(ordinals[:3] + ordinals[-1:], [1, 2, 3, 17])
+        self.assertEqual([TOWER[n]['kind'] for n in ordinals[3:9]], ['frame'] * 2 + ['elevator'] * 2 + ['lawyer'] * 2)
+        # A Code Lawyer room's verdict never reaches the browser.
+        self.assertNotIn('verdict', rooms[2]['payload'])
+        self.assertEqual(rooms[2]['payload']['clauses'], TOWER[3]['clauses'])
+        # A frame that loses ra is a wrong answer and a strike; a block the room doesn't offer is malformed.
+        result = self.answer(run['id'], rooms[0], {'frame': []}).json()
+        self.assertEqual((result['is_correct'], result['strikes']), (False, 1))
+        self.assertEqual(self.answer(run['id'], rooms[0], {'frame': ['t6']}).status_code, 422)
+        for room in rooms:
+            result = self.answer(run['id'], room, self.solution(run['id'], room))
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertTrue(result.json()['is_correct'], room['prompt'])
+        finished = self.post(f"/runs/{run['id']}/finish")
+        self.assertEqual(finished.status_code, 200, finished.text)
+        self.assertEqual([badge['slug'] for badge in finished.json()['badges']], ['badge_3'])
+        self.assertEqual([badge['name'] for badge in finished.json()['badges']], ['Stack Master'])
+        levels = {level['id']: level for level in self.client.get('/api/levels').json()}
+        self.assertEqual((levels[3]['name'], levels[3]['completed']), ('Call Stack Tower', True))
 
     def test_level_one_reads_abi_register_names(self):
         run = self.start()

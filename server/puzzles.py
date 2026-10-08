@@ -5,7 +5,7 @@ of room. Maze rooms (kind "maze") are memory the robot walks through: the player
 RISC-V lines (steps, loads, stores, and a loop: label that branches jump back to), and the
 response is that program as text. Code rooms (kind "code") are short programs with blank lines
 to fill: the response is the line picked for each blank, and the program must pass every one of
-the room's tests.
+the room's tests. Level 3's kinds (frame, elevator, lawyer) are graded in call_stack.py.
 
 Registers go by their ABI names (a0, t1, sp, ra; x0 stays x0, as the course writes it), and the
 x-names are accepted too.
@@ -15,7 +15,7 @@ import re
 
 from fastapi import HTTPException
 
-R_TYPE = {"add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu"}
+R_TYPE = {"add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu", "mul", "div", "rem"}
 BRANCHES = {"beq", "bne", "blt", "bge", "bltu", "bgeu"}
 MASK = 0xFFFFFFFF
 STEP_LIMIT = 200  # Instructions a maze program may execute before it counts as an endless loop.
@@ -24,11 +24,12 @@ REGISTERS = ["x0", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "
 NUMBERS = {name: number for number, name in enumerate(REGISTERS)} | {f"x{n}": n for n in range(32)} | {"zero": 0, "fp": 8}
 REG = r"(x\d+|zero|ra|sp|gp|tp|fp|t[0-6]|s1[01]|s\d|a[0-7])"
 LABEL_LINE = re.compile(r"(\w+):")
-MEMORY_LINE = re.compile(rf"(lw|sw) {REG}, (-?\d+)\({REG}\)")
+MEMORY_LINE = re.compile(rf"(lw|sw) {REG}, (-?\d+)?\({REG}\)")  # (sp) means 0(sp).
 BRANCH_LINE = re.compile(rf"(beq|bne|blt|bge|bltu|bgeu) {REG}, {REG}, (\w+)")
 JAL_LINE = re.compile(rf"jal {REG}, (\w+)")
 JUMP_LINE = re.compile(r"j (\w+)")
-JALR_LINE = re.compile(rf"jalr {REG}, (-?\d+)\({REG}\)")
+JALR_LINE = re.compile(rf"jalr {REG}, (-?\d+)?\({REG}\)")
+JR_LINE = re.compile(rf"jr {REG}")
 LA_LINE = re.compile(rf"la {REG}, (\w+)")
 REGISTER_LINE = re.compile(rf"([a-z]+) {REG}, {REG}, {REG}")
 IMMEDIATE_LINE = re.compile(rf"([a-z]+) {REG}, {REG}, (-?\d+)")
@@ -54,6 +55,8 @@ def signed(value: int, width: int = 32) -> int:
 def execute(op: str, a: int, b: int, width: int = 32) -> int:
     """Apply one ALU operation to width-bit operands; the immediate forms share the register ones."""
     op = "sltu" if op == "sltiu" else op if op in R_TYPE else op.removesuffix("i")
+    if op in ("mul", "div", "rem"):
+        return multiply_divide(op, a, b, width)
     shift = b & 31
     result = {
         "add": a + b, "sub": a - b, "and": a & b, "or": a | b, "xor": a ^ b,
@@ -61,6 +64,22 @@ def execute(op: str, a: int, b: int, width: int = 32) -> int:
         "slt": int(signed(a, width) < signed(b, width)), "sltu": int(a < b),
     }[op]
     return result & ((1 << width) - 1)
+
+
+def multiply_divide(op: str, a: int, b: int, width: int = 32) -> int:
+    """RV32M: mul keeps the low bits of the product, and division rounds toward zero. Dividing by
+    zero gives all ones (div) or the dividend (rem); the one division that overflows, the most
+    negative number divided by -1, gives that number back (div) and 0 (rem)."""
+    mask = (1 << width) - 1
+    if op == "mul":
+        return (a * b) & mask
+    x, y = signed(a, width), signed(b, width)
+    if y == 0:
+        return mask if op == "div" else a & mask
+    if x == -(1 << (width - 1)) and y == -1:
+        return a & mask if op == "div" else 0
+    quotient = abs(x) // abs(y) * (1 if (x < 0) == (y < 0) else -1)
+    return (quotient if op == "div" else x - quotient * y) & mask
 
 
 def branch_taken(op: str, a: int, b: int) -> bool:
@@ -100,7 +119,7 @@ def parse_line(line: str) -> dict:
         return {"op": "label", "name": match[1]}
     if match := MEMORY_LINE.fullmatch(line):
         op, register, offset, base = match.groups()
-        return {"op": op, "rd" if op == "lw" else "rs2": reg(register), "imm": int(offset), "rs1": reg(base)}
+        return {"op": op, "rd" if op == "lw" else "rs2": reg(register), "imm": int(offset or 0), "rs1": reg(base)}
     if match := BRANCH_LINE.fullmatch(line):
         return {"op": match[1], "rs1": reg(match[2]), "rs2": reg(match[3]), "target": match[4]}
     if match := JAL_LINE.fullmatch(line):
@@ -108,7 +127,11 @@ def parse_line(line: str) -> dict:
     if match := JUMP_LINE.fullmatch(line):
         return {"op": "jal", "rd": 0, "target": match[1]}
     if match := JALR_LINE.fullmatch(line):
-        return {"op": "jalr", "rd": reg(match[1]), "imm": int(match[2]), "rs1": reg(match[3])}
+        return {"op": "jalr", "rd": reg(match[1]), "imm": int(match[2] or 0), "rs1": reg(match[3])}
+    if match := JR_LINE.fullmatch(line):  # Short for jalr x0, 0(rs1).
+        return {"op": "jalr", "rd": 0, "imm": 0, "rs1": reg(match[1])}
+    if line == "ret":  # Short for jalr x0, 0(ra).
+        return {"op": "jalr", "rd": 0, "imm": 0, "rs1": reg("ra")}
     if match := LA_LINE.fullmatch(line):
         return {"op": "la", "rd": reg(match[1]), "target": match[2]}
     if match := REGISTER_LINE.fullmatch(line):
@@ -371,4 +394,7 @@ def grade_puzzle(payload: dict, response: dict) -> bool:
         return grade_maze(payload, response)
     if kind == "code":
         return grade_code(payload, response)
+    if kind in ("frame", "elevator", "lawyer"):
+        from .call_stack import grade_call_stack  # Imported here: call_stack builds on this module.
+        return grade_call_stack(payload, response)
     raise HTTPException(503, "This puzzle type is not supported.")

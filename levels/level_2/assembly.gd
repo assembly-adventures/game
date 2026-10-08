@@ -23,9 +23,13 @@ static func word_text(value: int) -> String:
 static func parse(line: String) -> Dictionary:
 	if line.ends_with(":"):
 		return {"op": "label", "name": line.trim_suffix(":")}
+	if line == "ret":  # Short for jalr x0, 0(ra).
+		return {"op": "jalr", "rd": 0, "imm": 0, "rs1": 1}
 	var parts := line.replace(",", "").split(" ")
 	var op := parts[0]
 	match op:
+		"jr":  # Short for jalr x0, 0(rs1).
+			return {"op": "jalr", "rd": 0, "imm": 0, "rs1": Registers.number(parts[1])}
 		"lw", "sw":
 			var place := parts[2].trim_suffix(")").split("(")
 			return {"op": op, "rd" if op == "lw" else "rs2": Registers.number(parts[1]), "imm": int(place[0]),

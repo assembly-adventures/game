@@ -5,7 +5,8 @@ extends Control
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_room.gd"),
-	"code": preload("res://levels/level_2/code_room.gd")}
+	"code": preload("res://levels/level_2/code_room.gd"), "frame": preload("res://levels/level_3/frame_room.gd"),
+	"elevator": preload("res://levels/level_3/elevator_room.gd"), "lawyer": preload("res://levels/level_3/lawyer_room.gd")}
 const Corridor := preload("res://ui/corridor.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
 const InstructionGuide := preload("res://ui/instruction_guide.gd")
@@ -23,7 +24,7 @@ var strikes: Dictionary = {}
 var choices: Array = []
 var tiles: Array = []
 var selectors: Array = []
-var puzzle = null  # The current gate's room (PuzzleRoom, MazeRoom, or CodeRoom), chosen by payload kind.
+var puzzle = null  # The current gate's room, chosen by its payload kind (see ROOMS).
 var request_id: String = ""
 var pending_answer: Dictionary = {}
 var busy: bool = false
@@ -31,6 +32,7 @@ var ready_for_next: bool = false
 var started_at: int = 0
 var title: Label
 var prompt_label: Label
+var detail_label: Label
 var code_box: PanelContainer
 var code_label: Label
 var options_box: VBoxContainer
@@ -109,15 +111,26 @@ func _build_ui() -> void:
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Lets a room's puzzle grow into spare height.
 	content.add_theme_constant_override("separation", 12)
 	scroll.add_child(content)
-	# The prompt, with any code it refers to in a monospace box beside it.
+	# The prompt (its goal, and any detail under it), with any code it refers to in a monospace box
+	# beside it.
 	var heading := HBoxContainer.new()
 	heading.add_theme_constant_override("separation", 16)
 	content.add_child(heading)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 2)
+	heading.add_child(words)
 	prompt_label = Label.new()
 	prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	prompt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prompt_label.add_theme_font_size_override("font_size", 20)
-	heading.add_child(prompt_label)
+	words.add_child(prompt_label)
+	detail_label = Label.new()
+	detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail_label.add_theme_font_size_override("font_size", 15)
+	detail_label.add_theme_color_override("font_color", Color(Style.TEXT, 0.7))
+	detail_label.hide()
+	words.add_child(detail_label)
 	code_box = PanelContainer.new()
 	var code_style := Style.panel_style()
 	code_style.bg_color = Color(0, 0, 0, 0.35)
@@ -247,7 +260,7 @@ func _show_next_unsolved() -> void:
 	retry.hide()
 	title.text = "Level %d · %s %d of %d" % [level_id, "Gate" if is_puzzle else "Question", question_index + 1,
 		run.questions.size()]
-	prompt_label.text = question.prompt
+	_show_prompt(str(question.prompt))
 	corridor.walk_to(question_index)
 	corridor.set_strikes(int(strikes.get(str(question.id), 0)))
 	code_box.visible = question.get("code_snippet") != null
@@ -260,6 +273,13 @@ func _show_next_unsolved() -> void:
 	_render_options()
 	guide_button.visible = puzzle != null and puzzle.has_method("guide")
 	started_at = Time.get_ticks_msec()
+
+## A prompt's first line is the gate's goal; any lines after it are detail, shown smaller beneath.
+func _show_prompt(text: String) -> void:
+	var goal := text.get_slice("\n", 0)
+	prompt_label.text = goal
+	detail_label.text = text.substr(goal.length()).strip_edges()
+	detail_label.visible = not detail_label.text.is_empty()
 
 func _clear_options() -> void:
 	for child in options_box.get_children():
@@ -457,7 +477,7 @@ func _finish() -> void:
 	corridor.finish()
 	Audio.play("complete")
 	_show_badge()
-	prompt_label.text = finish_line
+	_show_prompt(finish_line)
 	title.text = "Level complete — badge earned!" if PlayerData.guest else "Level complete — badge saved!"
 	feedback.text = "Guest badges reset when you reload." if PlayerData.guest else "Your badge will be here when you sign in again."
 	retry.hide()

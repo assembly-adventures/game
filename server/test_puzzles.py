@@ -435,6 +435,11 @@ class GateDesignTests(unittest.TestCase):
                      else [line for entry in payload["code"] for line in entry.get("blank", [entry.get("line")]) if line]
                      + [entry["label"] + ":" for entry in payload["code"] if "label" in entry])
             used |= {"label" if line.endswith(":") else line.split()[0] for line in lines}
+        level3 = json.loads((ROOT / "levels/level_3/guest_rooms.json").read_text())["rooms"]
+        for room in level3:
+            for entry in room["payload"]["code"]:
+                used.add("label" if "label" in entry else entry["line"].split()[0] if "line" in entry else "addi")
+        self.assertTrue({"mul", "jr", "ret"} <= used)
         self.assertEqual(used - entries, set())
         self.assertGreater(len(entries), 30)
 

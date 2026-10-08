@@ -3,8 +3,8 @@
 A Godot game for learning computer architecture, hosted on UNC CloudApps with
 CSXL Onyen login and PostgreSQL-backed progress.
 
-The current release includes two levels of ten puzzle gates each. Registers go
-by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
+The current release includes three levels of ten puzzle gates each. Registers
+go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
 
 - **Level 1 (registers):** binary and hex, signed values, overflow, logical
   operations, and shifts. Players press RISC-V instruction keys (`addi`, `slli`,
@@ -20,6 +20,19 @@ by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   lines: players pick a line for each blank and run the room's tests while the
   robot walks the code as the PC, and the registers, data, and stack change
   beside it.
+- **Level 3, Call Stack Tower:** procedures, `jal` and `jalr`, the calling
+  convention, stack frames, and recursion, following Lectures 6 and 7. The stack
+  is drawn as a tower of frames hanging from the top of memory, and the robot
+  rides `sp` like an elevator. Each run plays three tutorial rooms, two of each
+  room kind drawn from a bank of seventeen, and a finale. In Frame Builder rooms
+  players lay out a function's stack frame and the game writes its prologue and
+  epilogue; the Chip Chomper then calls the function, filling every register
+  with junk, and checks that each call returns the right value with the `s`
+  registers and `sp` intact. In Recursion Elevator rooms players type each
+  call's arguments, saved `ra` or `s0`, or return value, then ride the run down
+  and back up. In Code Lawyer rooms players find the line that breaks the
+  calling convention and name the rule it breaks. In the finale the Chomper
+  climbs up from the heap, so only a tight frame wins.
 
 On every gate, **Instruction guide** in the top bar (or the I key) spells out
 each instruction's abbreviation, how it's written, and what it does, plus the
@@ -50,11 +63,11 @@ Import `project.godot` in Godot and wait for asset imports to finish.
 `F5` starts the project at `start_page.tscn`; `F6` previews the current scene.
 Desktop scene previews do not have a UNC browser session, so saved gameplay
 requires the web build and authenticated API. When progress cannot load, the
-Control Center offers **Play as guest**: Levels 1 and 2 run from
-`levels/level_1/guest_rooms.json` and `levels/level_2/guest_rooms.json`, are graded
-in the client, and reset on reload. Level 2's file holds its whole room bank and
-draw rule, and guest runs draw the same way. Keep those files in sync with the
-rows in the database (a gameplay test checks them).
+Control Center offers **Play as guest**: Levels 1 to 3 run from
+`levels/level_<n>/guest_rooms.json`, are graded in the client, and reset on
+reload. The files for Levels 2 and 3 hold their whole room bank and draw rule,
+and guest runs draw the same way. Keep those files in sync with the rows in the
+database (a gameplay test checks them).
 
 Follow the [developer guide](Docs/development.md) for a runnable local database
 setup, tests, environment variables, code map, and contribution workflow.

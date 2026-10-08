@@ -2,7 +2,7 @@
 
 Ideas for turning each level into a puzzle that follows the COMP 311 Fall 2026
 calendar ([`311fa26 Schedule - Full Calendar.pdf`](311fa26%20Schedule%20-%20Full%20Calendar.pdf)).
-Levels 1 and 2 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
+Levels 1 to 3 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
 everything else here is a proposal.
 
 ## Design principles
@@ -108,13 +108,93 @@ Ideas not built yet:
 ### Level 3 — Call Stack Tower (weeks 5–6)
 Procedures, `jal`/`jalr`, arguments and return values, calling convention, stack frames, recursion.
 
-- **Tower builder:** nested calls stack frames into a tower. Place `ra`, saved
-  registers, and locals at the right `sp` offsets, or the tower topples on return.
-- **Register heist:** decide who saves what (caller- vs callee-saved) so no
-  value gets clobbered. The run shows exactly which value was "stolen".
-- **Return-address boomerang:** fix a program where `ra` gets overwritten.
-- **Recursion elevator:** predict each `factorial`/`fib` frame going down and
-  each return value coming up.
+**Implemented** as a bank of seventeen rooms, lined up with Lectures 6 and 7
+(procedures, the calling convention, stack frames, recursion). Each run plays
+ten: three tutorial rooms (one of each kind), then two Frame Builder, two
+Recursion Elevator, and two Code Lawyer rooms drawn at random, and the finale.
+The draw is the level's `draw` rule in the database, like Level 2's.
+
+The stack hangs from the top of memory like a tower: every call adds a floor
+below, and the robot rides `sp` like an elevator. The Chip Chomper is the caller
+and the contract's enforcer. It calls the room's function, filling every
+register with junk before each call, and its audit table checks each one: the
+right answer back in `a0`, every `s` register and `sp` as it left them, and no
+crash. Following the calling convention is the only way to pass every call, and
+any frame that does passes.
+
+- **Frame Builder:** click blocks (`ra`, `s0`, `a0`, …) to lay out a function's
+  frame from `sp+0` up, then move or remove them on the tower. The game writes
+  the prologue and epilogue the way the lectures do (for two words,
+  `addi sp, sp, -8` and an `sw` per block on the way in; an `lw` for `ra` and
+  each `s` block and `addi sp, sp, 8` on the way out), and the run plays the
+  Chomper's calls on the tower. A frame bigger than it needs to be costs a
+  star, so a leaf function's best frame is no frame at all.
+- **Recursion Elevator:** type values on the chain of calls of one run (each
+  floor's arguments, the `ra` or `s0` it saves, or what it returns), then ride:
+  the robot goes down a floor per call and back up a floor per return, and each
+  value turns green or red.
+- **Code Lawyer:** a function is on trial. Click the line that breaks the
+  calling convention and name the rule it breaks: callers save the `t` and `a`
+  registers they still need, callees save the `s` registers they use, save `ra`
+  before calling again, and put `sp` back before returning. **Watch** runs the
+  Chomper's audit for free, so the crime can be seen before objecting.
+- **Finale:** a Frame Builder room for `fact` while the Chomper climbs from the
+  heap, eating a stack word every 8 instructions. Only a frame that saves just
+  what `fact` needs lets `fact(6)` finish before the heap reaches it.
+
+Every gate states its goal in one line, with the idea it turns on underneath,
+and numbers its steps beside the controls they use (in a Code Lawyer room,
+step 2 is on the code itself). The run button says what is still missing, and
+an empty frame's listing marks where its prologue and epilogue will go.
+Strikes, the drag-back, hints, and stars work as in Levels 1 and 2; a hint
+appears over the tower so the controls never move, and a run that breaks the
+contract shows which call broke it and how. Level 2's two procedure rooms stay
+as a preview. The instruction guide adds `mul`, `div`, `rem`, `jr`, and `ret`.
+
+| Room | Pool | Kind | Idea | New concept |
+| --- | --- | --- | --- | --- |
+| 1 | tutorial | frame | `plus1` calls `triple` | `jal` overwrites `ra`, so save it first |
+| 2 | tutorial | elevator | `sqr(3)` rides down to `sqr(1)` | each call is a new floor; returns come back up in reverse |
+| 3 | tutorial | lawyer | `double` uses `s1` | a callee saves the `s` registers it uses |
+| 4 | frames | frame | `sqr` keeps x in `s0` | save the caller's `s0` before borrowing it |
+| 5 | frames | frame | `sqr` reads x back with `lw t1, 0(sp)` | a spilled argument is read back, not restored |
+| 6 | frames | frame | `fib` makes two calls | two values must survive the second call |
+| 7 | frames | frame | `gcd`'s call is the last thing it does | nothing used after the call: only `ra` needs saving |
+| 8 | frames | frame | `max3` calls no one | a leaf that uses only `t` registers needs no frame |
+| 9 | elevator | elevator | `fact(4)` | return values multiply on the way up |
+| 10 | elevator | elevator | `gcd(30, 18)` | arguments change floor by floor; the answer passes straight up |
+| 11 | elevator | elevator | `main` calls `sqr(4)` | `jal` puts PC + 4 in `ra`; inner calls return into `sqr` |
+| 12 | elevator | elevator | `fact(5)` keeps x in `s0` | each frame saves its caller's `s0` |
+| 13 | lawyer | lawyer | `plus2` calls `inc` twice | save `ra` before calling again |
+| 14 | lawyer | lawyer | `fact` keeps x in `t0` | `t` registers don't survive a call |
+| 15 | lawyer | lawyer | `gcd`'s audit crashes | put `sp` back before returning |
+| 16 | lawyer | lawyer | `fib` keeps `fib(n - 1)` in `s1` | a callee saves every `s` register it uses, not just `s0` |
+| 17 | finale | frame | Race the Chip Chomper with `fact(6)` | every saved word costs a word per floor |
+
+Ideas not built yet:
+
+- **Register Heist:** values needed after a call sit in registers, and the
+  callee scrambles every `t` and `a` register. Choose what to save, with stars
+  for the fewest saves.
+- **Return tickets:** before every step, predict where the PC goes next: PC + 4,
+  a branch or `jal` target and the `ra` it writes, or a `jalr` destination.
+- **Call-tree scrubber:** `fib(4)` as a tree. Scrub through time, and the stack
+  is always the path from the root to the current call, so its depth isn't the
+  number of calls.
+- **Debugger room:** step into, step over, step out, and watch a stack word to
+  find the line where a value goes wrong within a step budget.
+- **Too many arguments:** a function with ten arguments: the first eight travel
+  in `a0`-`a7`, and the rest go on the stack at the right offsets.
+- **Base-case picker:** choose the base case; a wrong one recurses until the
+  stack runs into the heap.
+- **Smashed stack:** a loop writes one word past a local array and overwrites
+  the saved `ra`. Find the off-by-one.
+- **Backtrace detective:** rebuild the call chain from a stack dump after a
+  crash, using the saved `ra` values (and frame pointers, which Level 3 leaves
+  out).
+- **Other finales:** an audit boss of twenty calls in a row, climbing out from
+  five calls deep with every epilogue on the way, or a relay through `main`,
+  `a`, `b`, and `c` with the answer assembled on the way back up.
 
 ### Level 4 — Decoder Vault (weeks 6–7)
 Machine-code encoding, R/I/S/B/U/J formats, wide immediates, assembling, linking, loading.
@@ -211,7 +291,9 @@ the player repairs each layer before time runs out.
 - Levels 1–4, 7, and the boss can share one RISC-V interpreter. Level 1 has
   added it as `server/puzzles.py`, mirrored in `levels/level_1/puzzle_room.gd`
   so the game can animate each press. The instruction-key format fits Levels 2–4
-  too, e.g., keys that are `lw`/`sw` with different offsets.
+  too, e.g., keys that are `lw`/`sw` with different offsets. Level 3 builds a
+  calling machine on it in `server/call_stack.py` (mirrored in
+  `levels/level_3/call_machine.gd`, which also records a trace for the tower).
 - Levels 5–6 need a gate-level circuit simulator with clocking.
 - New puzzle kinds are added as `puzzle` question payloads with a new `kind`, so
   content stays authored in the database. A new room gives the runner its lines

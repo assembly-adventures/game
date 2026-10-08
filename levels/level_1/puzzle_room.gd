@@ -8,7 +8,7 @@ signal attempt
 const Visuals := preload("res://levels/level_1/visuals.gd")
 const Style := preload("res://ui/style.gd")
 const Registers := preload("res://ui/registers.gd")
-const R_TYPE := ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu"]
+const R_TYPE := ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu", "mul", "div", "rem"]
 const STRIKES := 3  ## Failed tries before the Chip Chomper drags the robot back; matches server/gameplay.py.
 
 var payload: Dictionary
@@ -301,7 +301,23 @@ static func execute(op: String, a: int, b: int, bits: int) -> int:
 		"sra": return (signed(a, bits) >> shift) & value_mask
 		"slt": return int(signed(a, bits) < signed(b, bits))
 		"sltu": return int(a < b)
+		"mul": return (a * b) & value_mask
+		"div", "rem": return divide(op, a, b, bits)
 	return 0
+
+## RV32M division: it rounds toward zero. Dividing by zero gives all ones (div) or the dividend
+## (rem); the most negative number divided by -1 overflows, giving itself (div) and 0 (rem).
+## Mirrors multiply_divide in server/puzzles.py.
+static func divide(op: String, a: int, b: int, bits: int) -> int:
+	var value_mask := (1 << bits) - 1
+	var x := signed(a, bits)
+	var y := signed(b, bits)
+	if y == 0:
+		return value_mask if op == "div" else a & value_mask
+	if x == -(1 << (bits - 1)) and y == -1:
+		return a & value_mask if op == "div" else 0
+	var quotient := absi(x) / absi(y) * (1 if (x < 0) == (y < 0) else -1)
+	return (quotient if op == "div" else x - quotient * y) & value_mask
 
 static func run_program(program: Array, initial: Dictionary, bits: int = 32) -> Array:
 	var value_mask := (1 << bits) - 1

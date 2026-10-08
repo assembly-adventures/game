@@ -12,7 +12,7 @@ the game asks the player to reload and sign in again.
 | --- | --- |
 | `GET /api/me` | Onyen, active earned badges, badge total, and progress ratio |
 | `GET /api/levels` | Availability, question counts, and completion flags |
-| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 or 2) |
+| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 to 3) |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
 
@@ -76,6 +76,24 @@ tests, and it is correct only if every test passes. A program that crashes (a
 jump to where there is no code, a load or store outside the room's memory or
 off a word boundary, or a loop that never ends) fails that test. Each run the
 player starts is one attempt, so a wrong run is a strike.
+
+Level 3's rooms (graded in `server/call_stack.py`) send one of these:
+
+```json
+{"frame": ["s0", "ra"]}
+{"values": [9, 4, 1]}
+{"line": 256, "clause": "callee-save"}
+```
+
+A Frame Builder room sends its frame, from `sp+0` up: only the room's `blocks`,
+each at most once and at most `max_slots` of them. The server writes the frame's
+prologue and epilogue into the program and runs every one of the Chip Chomper's
+calls, which must return the expected value with `s0`-`s11` and `sp` as the
+Chomper set them. A Recursion Elevator room sends one whole number per blank, in
+the payload's order (the game parses hex itself). A Code Lawyer room sends the
+address of one of the program's instructions and one of its `clauses`; it is
+correct when both match the room's verdict, which run snapshots never include.
+Anything else returns 422. Each Run, ride, or objection is one attempt.
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when

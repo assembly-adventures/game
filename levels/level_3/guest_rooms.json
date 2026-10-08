@@ -1,0 +1,1443 @@
+{
+ "draw": [
+  {
+   "pool": "tutorial"
+  },
+  {
+   "pool": "frames",
+   "take": 2
+  },
+  {
+   "pool": "elevator",
+   "take": 2
+  },
+  {
+   "pool": "lawyer",
+   "take": 2
+  },
+  {
+   "pool": "finale"
+  }
+ ],
+ "rooms": [
+  {
+   "ordinal": 1,
+   "pool": "tutorial",
+   "prompt": "Build plus1's stack frame so all three calls work.\nplus1 calls triple, and that jal overwrites ra: the address plus1 needs to get back to the Chomper.",
+   "code_snippet": "int plus1(int x) { return triple(x) + 1; }",
+   "hint": "plus1 needs ra after triple returns, so save ra in its frame.",
+   "explanation": "jal ra, triple puts the address after it in ra, so plus1's own return address is gone unless the prologue saved it. With ra saved at sp+0, the epilogue loads it back and jr ra reaches the Chomper.",
+   "payload": {
+    "kind": "frame",
+    "entry": "plus1",
+    "code": [
+     {
+      "label": "plus1"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "jal ra, triple"
+     },
+     {
+      "line": "addi a0, a0, 1"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "jr ra"
+     },
+     {
+      "label": "triple"
+     },
+     {
+      "line": "slli t0, a0, 1"
+     },
+     {
+      "line": "add a0, a0, t0"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "s0",
+     "a0"
+    ],
+    "max_slots": 3,
+    "par": 1,
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 13
+     },
+     {
+      "args": {
+       "a0": -2
+      },
+      "expect": -5
+     },
+     {
+      "args": {
+       "a0": 7
+      },
+      "expect": 22
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 2,
+   "pool": "tutorial",
+   "prompt": "Fill in what each call to sqr returns, then ride to check.\nsqr(3) calls sqr(2), which calls sqr(1): one floor down per call.",
+   "code_snippet": "int sqr(int x) { return x < 2 ? x : sqr(x - 1) + x + x - 1; }",
+   "hint": "sqr(1) returns 1. On the way up, each floor adds x + x - 1 to what the floor below returned.",
+   "explanation": "sqr(1) is the base case and returns 1. sqr(2) returns 1 + 2 + 2 - 1 = 4, and sqr(3) returns 4 + 3 + 3 - 1 = 9. Each floor waits in its own frame until the floor below returns.",
+   "payload": {
+    "kind": "elevator",
+    "entry": "sqr",
+    "function": "sqr",
+    "code": [
+     {
+      "label": "sqr"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "sw s0, 0(sp)"
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, sqr"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw s0, 0(sp)"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 8"
+     },
+     {
+      "line": "jalr x0, 0(ra)"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 3
+      },
+      "expect": 9
+     }
+    ],
+    "params": [
+     "a0"
+    ],
+    "columns": [
+     "ret"
+    ],
+    "floors": 3,
+    "blanks": [
+     [
+      0,
+      "ret"
+     ],
+     [
+      1,
+      "ret"
+     ],
+     [
+      2,
+      "ret"
+     ]
+    ]
+   }
+  },
+  {
+   "ordinal": 3,
+   "pool": "tutorial",
+   "prompt": "Find the line that breaks a rule, then pick that rule.\nThe rules are the calling convention. The Chomper checks that its s registers come back unchanged.",
+   "code_snippet": "int double(int x) { return x + x; }",
+   "hint": "s registers belong to the caller. Which line writes one without saving it first?",
+   "explanation": "add s1, a0, a0 overwrites s1, and double never saved it. A callee may use s registers only if it saves them in its frame and restores them before returning; a temporary like t0 needs no saving.",
+   "payload": {
+    "kind": "lawyer",
+    "entry": "double",
+    "code": [
+     {
+      "label": "double"
+     },
+     {
+      "line": "add s1, a0, a0"
+     },
+     {
+      "line": "add a0, s1, x0"
+     },
+     {
+      "line": "ret"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 5
+      },
+      "expect": 10
+     }
+    ],
+    "clauses": [
+     "caller-save",
+     "callee-save",
+     "save-ra",
+     "restore-sp"
+    ],
+    "verdict": {
+     "lines": [
+      256
+     ],
+     "clause": "callee-save"
+    }
+   }
+  },
+  {
+   "ordinal": 4,
+   "pool": "frames",
+   "prompt": "Build sqr's stack frame so every call works.\nsqr keeps x in s0 while it calls itself, but s0 belongs to sqr's caller.",
+   "code_snippet": "int sqr(int x) { return x < 2 ? x : sqr(x - 1) + x + x - 1; }",
+   "hint": "sqr makes a call (so ra) and writes s0 (so s0).",
+   "explanation": "The frame holds ra and s0: addi sp, sp, -8, then sw ra, 4(sp) and sw s0, 0(sp), as in lecture. Without s0, the inner call overwrites the outer call's x; without ra, sqr never finds its way back.",
+   "payload": {
+    "kind": "frame",
+    "entry": "sqr",
+    "code": [
+     {
+      "label": "sqr"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, sqr"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "jalr x0, 0(ra)"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "s0",
+     "s1",
+     "a0"
+    ],
+    "max_slots": 4,
+    "par": 2,
+    "calls": [
+     {
+      "args": {
+       "a0": 3
+      },
+      "expect": 9
+     },
+     {
+      "args": {
+       "a0": 5
+      },
+      "expect": 25
+     },
+     {
+      "args": {
+       "a0": 1
+      },
+      "expect": 1
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 5,
+   "pool": "frames",
+   "prompt": "Build sqr's stack frame so the word at sp+0 holds x.\nThis sqr keeps x on the stack: after its call, lw t1, 0(sp) reads x back.",
+   "code_snippet": "int sqr(int x) { return x < 2 ? x : sqr(x - 1) + x + x - 1; }",
+   "hint": "x arrives in a0. Put a0 at sp+0, the word lw t1, 0(sp) reads, and keep ra above it.",
+   "explanation": "The prologue stores a0 (x) at sp+0 and ra at sp+4. After the call, a0 holds sqr(x - 1) and lw t1, 0(sp) brings x back. a0 isn't restored on the way out: it carries the return value.",
+   "payload": {
+    "kind": "frame",
+    "entry": "sqr",
+    "code": [
+     {
+      "label": "sqr"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, sqr"
+     },
+     {
+      "line": "lw t1, 0(sp)"
+     },
+     {
+      "line": "add a0, a0, t1"
+     },
+     {
+      "line": "add a0, a0, t1"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "a0",
+     "s0",
+     "t0"
+    ],
+    "max_slots": 4,
+    "par": 2,
+    "calls": [
+     {
+      "args": {
+       "a0": 3
+      },
+      "expect": 9
+     },
+     {
+      "args": {
+       "a0": 5
+      },
+      "expect": 25
+     },
+     {
+      "args": {
+       "a0": 1
+      },
+      "expect": 1
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 6,
+   "pool": "frames",
+   "prompt": "Build fib's stack frame so every call works.\nfib makes two calls, and n and fib(n - 1) must both survive the second one.",
+   "code_snippet": "int fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }",
+   "hint": "fib keeps n in s0 and fib(n - 1) in s1, and it calls, so it needs ra too.",
+   "explanation": "Three words: ra, s0, and s1. Each call to fib overwrites s0 and s1, so every frame saves its caller's copies and restores them before returning.",
+   "payload": {
+    "kind": "frame",
+    "entry": "fib",
+    "code": [
+     {
+      "label": "fib"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, s0, -1"
+     },
+     {
+      "line": "jal ra, fib"
+     },
+     {
+      "line": "add s1, x0, a0"
+     },
+     {
+      "line": "addi a0, s0, -2"
+     },
+     {
+      "line": "jal ra, fib"
+     },
+     {
+      "line": "add a0, a0, s1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "ret"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "s0",
+     "s1",
+     "a0",
+     "t0"
+    ],
+    "max_slots": 5,
+    "par": 3,
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 3
+     },
+     {
+      "args": {
+       "a0": 6
+      },
+      "expect": 8
+     },
+     {
+      "args": {
+       "a0": 1
+      },
+      "expect": 1
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 7,
+   "pool": "frames",
+   "prompt": "Build gcd's stack frame, saving only what it needs.\ngcd's recursive call is the last thing it does before returning.",
+   "code_snippet": "int gcd(int a, int b) {\n    return a == b ? a : a > b ? gcd(a - b, b) : gcd(a, b - a); }",
+   "hint": "After its call, gcd just returns what it got. Nothing it needs is lost, except its way back.",
+   "explanation": "Only ra. gcd's answer comes back in a0 and goes straight up, so there's nothing else to keep across the call. Saving more still works but wastes stack.",
+   "payload": {
+    "kind": "frame",
+    "entry": "gcd",
+    "code": [
+     {
+      "label": "gcd"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "beq a0, a1, done"
+     },
+     {
+      "line": "blt a0, a1, smaller"
+     },
+     {
+      "line": "sub a0, a0, a1"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "line": "j done"
+     },
+     {
+      "label": "smaller"
+     },
+     {
+      "line": "sub a1, a1, a0"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "a0",
+     "a1",
+     "s0"
+    ],
+    "max_slots": 4,
+    "par": 1,
+    "calls": [
+     {
+      "args": {
+       "a0": 12,
+       "a1": 18
+      },
+      "expect": 6
+     },
+     {
+      "args": {
+       "a0": 7,
+       "a1": 5
+      },
+      "expect": 1
+     },
+     {
+      "args": {
+       "a0": 4,
+       "a1": 4
+      },
+      "expect": 4
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 8,
+   "pool": "frames",
+   "prompt": "Build max3's stack frame, if it needs one at all.\nmax3 calls no other function and uses only t registers.",
+   "code_snippet": "int max3(int a, int b, int c);   // the largest of the three",
+   "hint": "A function that makes no calls keeps ra, and t registers are free to use.",
+   "explanation": "No frame at all. max3 is a leaf: it never calls, so ra is untouched, and it uses only t0, which the caller doesn't expect to survive. Every saved word would be wasted stack.",
+   "payload": {
+    "kind": "frame",
+    "entry": "max3",
+    "code": [
+     {
+      "label": "max3"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "add t0, x0, a0"
+     },
+     {
+      "line": "bge t0, a1, skip_b"
+     },
+     {
+      "line": "add t0, x0, a1"
+     },
+     {
+      "label": "skip_b"
+     },
+     {
+      "line": "bge t0, a2, skip_c"
+     },
+     {
+      "line": "add t0, x0, a2"
+     },
+     {
+      "label": "skip_c"
+     },
+     {
+      "line": "add a0, x0, t0"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "ret"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "s0",
+     "t0"
+    ],
+    "max_slots": 3,
+    "par": 0,
+    "calls": [
+     {
+      "args": {
+       "a0": 3,
+       "a1": 9,
+       "a2": 4
+      },
+      "expect": 9
+     },
+     {
+      "args": {
+       "a0": -5,
+       "a1": -2,
+       "a2": -7
+      },
+      "expect": -2
+     },
+     {
+      "args": {
+       "a0": 7,
+       "a1": 7,
+       "a2": 1
+      },
+      "expect": 7
+     }
+    ]
+   }
+  },
+  {
+   "ordinal": 9,
+   "pool": "elevator",
+   "prompt": "Fill in what each call to fact returns, then ride to check.\nfact(4) calls fact(3), and so on down to fact(1).",
+   "code_snippet": "int fact(int x) { return x <= 1 ? x : x * fact(x - 1); }",
+   "hint": "fact(1) returns 1. Each floor multiplies its x by what the floor below returned.",
+   "explanation": "fact(1) = 1, fact(2) = 2 × 1 = 2, fact(3) = 3 × 2 = 6, and fact(4) = 4 × 6 = 24. mul runs only after the call returns, which is why x has to wait in s0.",
+   "payload": {
+    "kind": "elevator",
+    "entry": "fact",
+    "function": "fact",
+    "code": [
+     {
+      "label": "fact"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "sw s0, 0(sp)"
+     },
+     {
+      "line": "addi t0, x0, 1"
+     },
+     {
+      "line": "bge t0, a0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, fact"
+     },
+     {
+      "line": "mul a0, a0, s0"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw s0, 0(sp)"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 8"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 24
+     }
+    ],
+    "params": [
+     "a0"
+    ],
+    "columns": [
+     "ret"
+    ],
+    "floors": 4,
+    "blanks": [
+     [
+      0,
+      "ret"
+     ],
+     [
+      1,
+      "ret"
+     ],
+     [
+      2,
+      "ret"
+     ],
+     [
+      3,
+      "ret"
+     ]
+    ]
+   }
+  },
+  {
+   "ordinal": 10,
+   "pool": "elevator",
+   "prompt": "Fill in each call's arguments, and the final answer.\nEach call subtracts the smaller argument from the bigger one.",
+   "code_snippet": "int gcd(int a, int b) {\n    return a == b ? a : a > b ? gcd(a - b, b) : gcd(a, b - a); }",
+   "hint": "The bigger argument loses the smaller one each floor down, until the two are equal.",
+   "explanation": "gcd(30, 18) calls gcd(12, 18), then gcd(12, 6), then gcd(6, 6), which returns 6. The answer climbs back up unchanged: every floor returns 6.",
+   "payload": {
+    "kind": "elevator",
+    "entry": "gcd",
+    "function": "gcd",
+    "code": [
+     {
+      "label": "gcd"
+     },
+     {
+      "line": "addi sp, sp, -4"
+     },
+     {
+      "line": "sw ra, 0(sp)"
+     },
+     {
+      "line": "beq a0, a1, done"
+     },
+     {
+      "line": "blt a0, a1, smaller"
+     },
+     {
+      "line": "sub a0, a0, a1"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "line": "j done"
+     },
+     {
+      "label": "smaller"
+     },
+     {
+      "line": "sub a1, a1, a0"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw ra, 0(sp)"
+     },
+     {
+      "line": "addi sp, sp, 4"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 30,
+       "a1": 18
+      },
+      "expect": 6
+     }
+    ],
+    "params": [
+     "a0",
+     "a1"
+    ],
+    "columns": [
+     "ret"
+    ],
+    "floors": 4,
+    "blanks": [
+     [
+      1,
+      "a0"
+     ],
+     [
+      1,
+      "a1"
+     ],
+     [
+      2,
+      "a0"
+     ],
+     [
+      2,
+      "a1"
+     ],
+     [
+      3,
+      "a0"
+     ],
+     [
+      3,
+      "a1"
+     ],
+     [
+      0,
+      "ret"
+     ]
+    ]
+   }
+  },
+  {
+   "ordinal": 11,
+   "pool": "elevator",
+   "prompt": "Fill in the ra each call to sqr saves, in hex.\nmain calls sqr(4); jal puts PC + 4 in ra, and each sqr saves the ra it gets.",
+   "code_snippet": "int sqr(int x) { return x < 2 ? x : sqr(x - 1) + x + x - 1; }",
+   "hint": "main's jal is at 0x10C, so the first sqr gets 0x110. Every later call comes from the same jal inside sqr.",
+   "explanation": "The first floor saves 0x110, the address after main's jal ra, sqr. Every deeper floor saves 0x13C, the address after the jal inside sqr, so each return lands back in the middle of sqr.",
+   "payload": {
+    "kind": "elevator",
+    "entry": "main",
+    "function": "sqr",
+    "code": [
+     {
+      "label": "main"
+     },
+     {
+      "line": "addi sp, sp, -4"
+     },
+     {
+      "line": "sw ra, 0(sp)"
+     },
+     {
+      "line": "addi a0, x0, 4"
+     },
+     {
+      "line": "jal ra, sqr"
+     },
+     {
+      "line": "lw ra, 0(sp)"
+     },
+     {
+      "line": "addi sp, sp, 4"
+     },
+     {
+      "line": "jr ra"
+     },
+     {
+      "label": "sqr"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "sw s0, 0(sp)"
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, sqr"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "add a0, a0, s0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw s0, 0(sp)"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 8"
+     },
+     {
+      "line": "jalr x0, 0(ra)"
+     }
+    ],
+    "calls": [
+     {
+      "args": {},
+      "expect": 16
+     }
+    ],
+    "params": [
+     "a0"
+    ],
+    "columns": [
+     "ra"
+    ],
+    "floors": 4,
+    "blanks": [
+     [
+      0,
+      "ra"
+     ],
+     [
+      1,
+      "ra"
+     ],
+     [
+      2,
+      "ra"
+     ],
+     [
+      3,
+      "ra"
+     ]
+    ]
+   }
+  },
+  {
+   "ordinal": 12,
+   "pool": "elevator",
+   "prompt": "Fill in the s0 each call to fact saves.\nfact keeps x in s0, so each call first saves its caller's s0 on the stack.",
+   "code_snippet": "int fact(int x) { return x <= 1 ? x : x * fact(x - 1); }",
+   "hint": "Each floor saves the s0 its caller was using: the caller's x.",
+   "explanation": "The first floor saves the Chomper's s0 (0x5A08). Every deeper floor saves its caller's x: 5, then 4, 3, 2. That's how each floor gets its own x back after the call.",
+   "payload": {
+    "kind": "elevator",
+    "entry": "fact",
+    "function": "fact",
+    "code": [
+     {
+      "label": "fact"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "sw s0, 0(sp)"
+     },
+     {
+      "line": "addi t0, x0, 1"
+     },
+     {
+      "line": "bge t0, a0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, fact"
+     },
+     {
+      "line": "mul a0, a0, s0"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw s0, 0(sp)"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 8"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 5
+      },
+      "expect": 120
+     }
+    ],
+    "params": [
+     "a0"
+    ],
+    "columns": [
+     "s0"
+    ],
+    "floors": 5,
+    "blanks": [
+     [
+      1,
+      "s0"
+     ],
+     [
+      2,
+      "s0"
+     ],
+     [
+      3,
+      "s0"
+     ],
+     [
+      4,
+      "s0"
+     ]
+    ]
+   }
+  },
+  {
+   "ordinal": 13,
+   "pool": "lawyer",
+   "prompt": "Find the line that breaks a rule, then pick that rule.\nplus2 calls inc twice, then returns to the Chomper.",
+   "code_snippet": "int plus2(int x) { return inc(inc(x)); }",
+   "hint": "What does jal ra, inc do to the address plus2 needs to get back to the Chomper?",
+   "explanation": "jal ra, inc overwrites ra, plus2's only way back, and plus2 never saved it. jr ra then returns to plus2 itself, forever. A function that makes calls must save ra first.",
+   "payload": {
+    "kind": "lawyer",
+    "entry": "plus2",
+    "code": [
+     {
+      "label": "plus2"
+     },
+     {
+      "line": "jal ra, inc"
+     },
+     {
+      "line": "jal ra, inc"
+     },
+     {
+      "line": "jr ra"
+     },
+     {
+      "label": "inc"
+     },
+     {
+      "line": "addi a0, a0, 1"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 5
+      },
+      "expect": 7
+     }
+    ],
+    "clauses": [
+     "caller-save",
+     "callee-save",
+     "save-ra",
+     "restore-sp"
+    ],
+    "verdict": {
+     "lines": [
+      256,
+      260
+     ],
+     "clause": "save-ra"
+    }
+   }
+  },
+  {
+   "ordinal": 14,
+   "pool": "lawyer",
+   "prompt": "Find the line that breaks a rule, then pick that rule.\nThis fact keeps x in t0 while it calls itself.",
+   "code_snippet": "int fact(int x) { return x <= 1 ? x : x * fact(x - 1); }",
+   "hint": "t registers belong to whoever is running. Does fact still have its x after calling itself?",
+   "explanation": "jal ra, fact is a call made while t0 still holds x, and the inner fact overwrites t0. The caller must save any t or a register it needs after a call, or keep the value in an s register.",
+   "payload": {
+    "kind": "lawyer",
+    "entry": "fact",
+    "code": [
+     {
+      "label": "fact"
+     },
+     {
+      "line": "addi sp, sp, -4"
+     },
+     {
+      "line": "sw ra, 0(sp)"
+     },
+     {
+      "line": "addi t0, x0, 1"
+     },
+     {
+      "line": "bge t0, a0, done"
+     },
+     {
+      "line": "add t0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, fact"
+     },
+     {
+      "line": "mul a0, a0, t0"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw ra, 0(sp)"
+     },
+     {
+      "line": "addi sp, sp, 4"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 24
+     }
+    ],
+    "clauses": [
+     "caller-save",
+     "callee-save",
+     "save-ra",
+     "restore-sp"
+    ],
+    "verdict": {
+     "lines": [
+      280,
+      284
+     ],
+     "clause": "caller-save"
+    }
+   }
+  },
+  {
+   "ordinal": 15,
+   "pool": "lawyer",
+   "prompt": "Find the line that breaks a rule, then pick that rule.\nThe Chomper's call to gcd crashes. Watch it to see what goes wrong.",
+   "code_snippet": "int gcd(int a, int b) {\n    return a == b ? a : a > b ? gcd(a - b, b) : gcd(a, b - a); }",
+   "hint": "Compare how much stack gcd takes with how much it gives back.",
+   "explanation": "The prologue takes 8 bytes (addi sp, sp, -8), but addi sp, sp, 4 gives back only 4. Each return leaves sp 4 bytes low, so the caller's lw ra reads the wrong word and jumps to junk.",
+   "payload": {
+    "kind": "lawyer",
+    "entry": "gcd",
+    "code": [
+     {
+      "label": "gcd"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "beq a0, a1, done"
+     },
+     {
+      "line": "blt a0, a1, smaller"
+     },
+     {
+      "line": "sub a0, a0, a1"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "line": "j done"
+     },
+     {
+      "label": "smaller"
+     },
+     {
+      "line": "sub a1, a1, a0"
+     },
+     {
+      "line": "jal ra, gcd"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 4"
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 30,
+       "a1": 18
+      },
+      "expect": 6
+     }
+    ],
+    "clauses": [
+     "caller-save",
+     "callee-save",
+     "save-ra",
+     "restore-sp"
+    ],
+    "verdict": {
+     "lines": [
+      296
+     ],
+     "clause": "restore-sp"
+    }
+   }
+  },
+  {
+   "ordinal": 16,
+   "pool": "lawyer",
+   "prompt": "Find the line that breaks a rule, then pick that rule.\nfib saves ra and s0, then keeps fib(n - 1) somewhere during its second call.",
+   "code_snippet": "int fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }",
+   "hint": "Which registers does fib's prologue save? Which ones does fib write?",
+   "explanation": "add s1, x0, a0 writes s1, which fib never saved. Every inner fib overwrites it, and the Chomper gets its s1 back changed. The prologue must save every s register the function uses.",
+   "payload": {
+    "kind": "lawyer",
+    "entry": "fib",
+    "code": [
+     {
+      "label": "fib"
+     },
+     {
+      "line": "addi sp, sp, -8"
+     },
+     {
+      "line": "sw ra, 4(sp)"
+     },
+     {
+      "line": "sw s0, 0(sp)"
+     },
+     {
+      "line": "slti t0, a0, 2"
+     },
+     {
+      "line": "bne t0, x0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, s0, -1"
+     },
+     {
+      "line": "jal ra, fib"
+     },
+     {
+      "line": "add s1, x0, a0"
+     },
+     {
+      "line": "addi a0, s0, -2"
+     },
+     {
+      "line": "jal ra, fib"
+     },
+     {
+      "line": "add a0, a0, s1"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "line": "lw s0, 0(sp)"
+     },
+     {
+      "line": "lw ra, 4(sp)"
+     },
+     {
+      "line": "addi sp, sp, 8"
+     },
+     {
+      "line": "ret"
+     }
+    ],
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 3
+     }
+    ],
+    "clauses": [
+     "caller-save",
+     "callee-save",
+     "save-ra",
+     "restore-sp"
+    ],
+    "verdict": {
+     "lines": [
+      288
+     ],
+     "clause": "callee-save"
+    }
+   }
+  },
+  {
+   "ordinal": 17,
+   "pool": "finale",
+   "prompt": "Build fact's stack frame small enough to beat the Chomper.\nThe Chomper eats a stack word every 8 instructions. fact(6) must finish first.",
+   "code_snippet": "int fact(int x) { return x <= 1 ? x : x * fact(x - 1); }",
+   "hint": "fact needs ra and the s0 it keeps x in. Every extra word makes each floor bigger and slower.",
+   "explanation": "Two words, ra and s0, is the tightest frame that works: six floors of two words fit above the Chomper, and short prologues keep the climb back up ahead of it. A bigger frame runs into the heap.",
+   "payload": {
+    "kind": "frame",
+    "entry": "fact",
+    "code": [
+     {
+      "label": "fact"
+     },
+     {
+      "prologue": true
+     },
+     {
+      "line": "addi t0, x0, 1"
+     },
+     {
+      "line": "bge t0, a0, done"
+     },
+     {
+      "line": "add s0, x0, a0"
+     },
+     {
+      "line": "addi a0, a0, -1"
+     },
+     {
+      "line": "jal ra, fact"
+     },
+     {
+      "line": "mul a0, a0, s0"
+     },
+     {
+      "label": "done"
+     },
+     {
+      "epilogue": true
+     },
+     {
+      "line": "jr ra"
+     }
+    ],
+    "blocks": [
+     "ra",
+     "s0",
+     "s1",
+     "a0",
+     "t0"
+    ],
+    "max_slots": 5,
+    "par": 2,
+    "calls": [
+     {
+      "args": {
+       "a0": 4
+      },
+      "expect": 24
+     },
+     {
+      "args": {
+       "a0": 6
+      },
+      "expect": 720
+     },
+     {
+      "args": {
+       "a0": 1
+      },
+      "expect": 1
+     }
+    ],
+    "stack_words": 20,
+    "chomper": {
+     "start": 8,
+     "every": 8
+    }
+   }
+  }
+ ]
+}
