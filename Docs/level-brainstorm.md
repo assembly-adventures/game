@@ -2,7 +2,7 @@
 
 Ideas for turning each level into a puzzle that follows the COMP 311 Fall 2026
 calendar ([`311fa26 Schedule - Full Calendar.pdf`](311fa26%20Schedule%20-%20Full%20Calendar.pdf)).
-Level 1 is implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
+Levels 1 and 2 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
 everything else here is a proposal.
 
 ## Design principles
@@ -47,12 +47,63 @@ available, and stars reward solving at par.
 ### Level 2 — Memory Maze (weeks 3–4)
 Memory, addresses, `lw`/`sw`, arrays, comparisons, branches, loops, translation from C.
 
-- **Memory maze:** memory is a grid of cells. The avatar is a base register, and
-  `lw`/`sw` with offsets fetch keys and drop items. Array indexing (`i*4`) is the core move.
+**Implemented** as a bank of sixteen rooms, lined up with Lecture 4 (loads,
+stores, accessing memory). Each run plays ten: the four tutorial rooms, then one
+memory, one branches, and one loops room drawn at random, both procedure rooms
+(stack frames give students the most trouble), and the race.
+The draw is the level's `draw` rule in the database, so it can change without
+new code.
+
+Maze rooms are small mazes of memory words seen from above, in row-major order
+from `0x4000` as in the lecture, so a step right is `+4` and a step down is
+`+4 × width`. The player steers the robot with the arrow keys (or WASD, or by
+clicking the next cell) and clicks any word to load it into a register or store
+one there: base + offset reaches the whole room, and the menu shows the math
+(`arr[3] · 0x400C = a0 + 12`). Every action is written into the program as a
+real RISC-V line, so the code is the trail the robot leaves. Walls are protected
+memory, doors open when their word holds the right code, and glass holds words
+you can reach but not stand on. In teaching rooms the player taps `loop:`,
+teaches the robot one pass by hand, and taps a Repeat key (a branch) to let it
+run the rest. An action that would crash (walking into a wall, glass, or a
+locked door; a loop that never ends) plays out to the crash, explains it, and
+is taken back without a strike. In the race the Chip Chomper eats an int every
+4 instructions, so a sloppy loop loses.
+
+Code rooms are short programs with blank lines. The player clicks a blank (or
+presses its number) to pick its line, then runs the room's tests. The robot
+plays the PC: it walks the program by address, following branches and jumps,
+while the registers, the data words, and the stack (with `sp` pointing at its
+word) change beside it. Tests use different inputs, like x = 3 and x = 7, so
+the program has to work in general. A run that fails a test is a
+strike, and a crash (a misaligned or missing word, or a jump to junk) says
+where it happened. Strikes, the drag-back, hints, and stars work as in Level 1.
+Registers go by their ABI names, with each x-name in small print.
+
+| Room | Pool | Kind | Idea | New concept (lecture slide) |
+| --- | --- | --- | --- | --- |
+| 1 | tutorial | maze | Walk to the exit | an int is 4 bytes: each step is +4 |
+| 2 | tutorial | maze | Load `arr[3]` of `5 90 100 40 11` | `lw`, R[rd] = M[R[rs1] + offset] (36–41) |
+| 3 | tutorial | maze | `arr[3]` is a door that needs 8 | `sw`, M[R[rs1] + offset] = R[rs2] (42–43) |
+| 4 | tutorial | maze | Cross a long corridor | `loop:` + `bne a0, a1, loop` |
+| 5 | memory | maze | Go down two rows | memory is one line: down is +16 in a 4-word room |
+| 6 | memory | maze | A door holds 7 and needs 12 | load/store architecture: `lw`, `addi`, `sw` (21) |
+| 7 | memory | maze | Swap two doors' codes | two registers; negative offsets |
+| 8 | memory | code | `sum = arr[i] + arr[i+1]` | `slli` by 2 for an int's offset, then base + offset |
+| 9 | branches | code | `if (x < 5) … else …` | `slti`, branch to else, jump over it |
+| 10 | branches | maze | Walk to the first 0 | a sentinel loop: `bne t1, x0, loop` |
+| 11 | loops | maze | Copy `a[]` into the vault below | a loop body relative to `a0`; `blt` vs `bge` |
+| 12 | loops | maze | Sum `values[i]` while `i < 6` | the lecture's loop, with `blt t0, t6` (45) |
+| 13 | loops | code | `for (i = 3; i >= 0; i--) arr[i] += 2` | a countdown loop: `bge` vs `bne` |
+| 14 | procedures | code | `a0 = func(6) + 1` | `jal` saves PC + 4 in `ra`; `jalr` returns |
+| 15 | procedures | code | `result = func(6)` from a stack frame | save `ra` before `jal`; store before restoring |
+| 16 | finale | maze | Race the Chip Chomper | a loop costs its body times its passes |
+
+Ideas not built yet:
+
 - **Branch railroad:** set branch conditions (`beq`/`bne`/`blt`/`bge`) so a train
-  reaches the right station for given inputs.
-- **C-to-RISC-V translator:** build a loop from instruction tiles that passes
-  hidden test arrays (sum, count evens, find max).
+  reaches the right station for given inputs (forward branches and if/else).
+- **Hidden test arrays:** grade a loop against arrays the player can't see
+  (sum, count evens, find max), so it has to work in general.
 
 ### Level 3 — Call Stack Tower (weeks 5–6)
 Procedures, `jal`/`jalr`, arguments and return values, calling convention, stack frames, recursion.
@@ -163,7 +214,9 @@ the player repairs each layer before time runs out.
   too, e.g., keys that are `lw`/`sw` with different offsets.
 - Levels 5–6 need a gate-level circuit simulator with clocking.
 - New puzzle kinds are added as `puzzle` question payloads with a new `kind`, so
-  content stays authored in the database.
+  content stays authored in the database. A new room gives the runner its lines
+  through `guide()`, so the instruction guide can explain every instruction on
+  the gate; a new instruction needs an entry in `ui/instruction_guide.gd`.
 - The game currently has six level slots plus a challenge. This plan needs eight
   plus the boss, which means adding `level_7`/`level_8` buttons in
   `control_center.tscn` and renaming the existing scenes.

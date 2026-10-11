@@ -71,6 +71,12 @@ static func burst(parent: Node, at: Vector2, colors: Array, amount: int = 16, sp
 	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(particles.queue_free)
 
 
+## A 32-bit word as the signed number C would print.
+static func word_text(value: int) -> String:
+	value &= 0xFFFFFFFF
+	return str(value - (1 << 32) if value >> 31 != 0 else value)
+
+
 ## A chunky arcade key, tinted by what kind of operation it runs.
 static func key_style(color: Color, state: String) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

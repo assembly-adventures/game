@@ -2,7 +2,7 @@
 
 The current release serves the Godot game behind CSXL Onyen login,
 using the same upstream `/auth` and `/verify` contract as LearnWithAI.
-PostgreSQL stores level 1 questions, attempts, and earned badges. Unfinished runs
+PostgreSQL stores the level 1 and 2 questions, attempts, and earned badges. Unfinished runs
 resume after reload or login. Other levels remain inactive. Verified Onyen and PID
 are stored for roster use; PID is never sent to the game or placed in its cookie.
 
@@ -102,7 +102,7 @@ curl -I https://assembly-adventures-teddyt.apps.cloudapps.unc.edu/index.pck
 ```
 
 Both unauthenticated requests should redirect to `/auth/login`. Follow the
-login flow, verify that the game loads, and play through level 1. Automated
+login flow, verify that the game loads, and play through levels 1 and 2. Automated
 tests mock CSXL verification; they do not substitute for this real SSO check.
 
 ## Moving to another namespace

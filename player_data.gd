@@ -3,7 +3,14 @@ extends Node
 signal profile_changed
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
-const GUEST_ROOMS := "res://levels/level_1/guest_rooms.json"
+const MazeRoom := preload("res://levels/level_2/maze_room.gd")
+const CodeRoom := preload("res://levels/level_2/code_room.gd")
+## The levels guest mode can play, each from a copy of its gates kept in sync with the database. A
+## level's copy is a list of rooms, or its whole bank and draw rule when its runs draw their rooms.
+const GUEST_LEVELS := {
+	1: {"rooms": "res://levels/level_1/guest_rooms.json", "badge": {"slug": "badge_1", "name": "Basic Instructions Master"}},
+	2: {"rooms": "res://levels/level_2/guest_rooms.json", "badge": {"slug": "badge_2", "name": "Memory Master"}},
+}
 
 var earned_badges: Array[String] = []
 var levels: Array = []
@@ -12,11 +19,14 @@ var api_base: String = ""
 var last_error: String = ""
 # Guest mode answers API calls in memory: nothing reaches the server and a reload starts over.
 var guest: bool = false
-var guest_rooms: Array = []
-var guest_solved: Array = []
+# Per level ID: every room it can draw from (with its draw rule, if any), the rooms of its current
+# run, the gates solved, strikes by gate, and whether its run finished.
+var guest_banks: Dictionary = {}
+var guest_rooms: Dictionary = {}
+var guest_solved: Dictionary = {}
 var guest_strikes: Dictionary = {}
-var guest_badge: bool = false
-var guest_run_done: bool = false
+var guest_run_done: Dictionary = {}
+var guest_badges: Array = []
 
 func _ready() -> void:
 	if OS.has_feature("web"):
@@ -91,73 +101,117 @@ func new_request_id() -> String:
 
 func start_guest() -> void:
 	guest = true
-	guest_rooms = JSON.parse_string(FileAccess.get_file_as_string(GUEST_ROOMS))
-	guest_solved.clear()
-	guest_strikes.clear()
-	guest_badge = false
-	guest_run_done = false
+	guest_badges.clear()
+	for level in GUEST_LEVELS:
+		var bank = JSON.parse_string(FileAccess.get_file_as_string(GUEST_LEVELS[level].rooms))
+		guest_banks[level] = bank if bank is Dictionary else {"rooms": bank}
+		guest_rooms[level] = _guest_draw(guest_banks[level])
+		guest_solved[level] = []
+		guest_strikes[level] = {}
+		guest_run_done[level] = false
 
-# Mirrors the responses of server/gameplay.py for Level 1, graded by the client interpreter.
+# Mirrors the responses of server/gameplay.py for the guest levels, graded by the client interpreters.
+# A guest run's ID is "guest-<level>", so its attempts post to /runs/guest-<level>/attempts.
 func _guest_request(path: String, body: Dictionary) -> Dictionary:
-	match path:
-		"/me":
-			return {"ok": true, "data": _guest_profile()}
-		"/levels":
-			return {"ok": true, "data": [{"id": 1, "is_active": true}]}
-		"/runs":
-			if int(body.get("level_id", 0)) != 1:
-				return {"ok": false, "error": "Guest mode only includes Level 1.", "status": 404}
-			if guest_run_done:
-				guest_solved.clear()
-				guest_strikes.clear()
-				guest_run_done = false
-			var questions: Array = []
-			for room in guest_rooms:
-				questions.append({"id": "guest-%d" % int(room.ordinal), "type": "puzzle", "prompt": room.prompt,
-					"code_snippet": null, "hint": room.hint, "payload": room.payload})
-			return {"ok": true, "data": {"id": "guest", "level_id": 1, "outcome": "in_progress",
-				"questions": questions, "solved_question_ids": guest_solved.duplicate(),
-				"strikes": guest_strikes.duplicate()}}
-		"/runs/guest/attempts":
-			for i in range(guest_rooms.size()):
-				var id := _guest_id(i)
-				if id == body.question_id:
-					return {"ok": true, "data": _guest_attempt(i, body.response)}
-			return {"ok": false, "error": "Question does not belong to this run.", "status": 404}
-		"/runs/guest/finish":
-			if not guest_run_done and guest_solved.size() < guest_rooms.size():
-				return {"ok": false, "error": "Answer every question correctly before finishing.", "status": 409}
-			guest_badge = true
-			guest_run_done = true
-			return {"ok": true, "data": _guest_profile()}
+	if path == "/me":
+		return {"ok": true, "data": _guest_profile()}
+	if path == "/levels":
+		var listed: Array = []
+		for level in GUEST_LEVELS:
+			listed.append({"id": level, "is_active": true, "completed": level in guest_badges})
+		return {"ok": true, "data": listed}
+	if path == "/runs":
+		var level := int(body.get("level_id", 0))
+		if not GUEST_LEVELS.has(level):
+			return {"ok": false, "error": "Guest mode only includes Levels 1 and 2.", "status": 404}
+		if guest_run_done[level]:
+			guest_rooms[level] = _guest_draw(guest_banks[level])
+			guest_solved[level] = []
+			guest_strikes[level] = {}
+			guest_run_done[level] = false
+		var questions: Array = []
+		for room in guest_rooms[level]:
+			questions.append({"id": _guest_id(level, room), "type": "puzzle", "prompt": room.prompt,
+				"code_snippet": room.get("code_snippet"), "hint": room.hint, "payload": room.payload})
+		return {"ok": true, "data": {"id": "guest-%d" % level, "level_id": level, "outcome": "in_progress",
+			"questions": questions, "solved_question_ids": guest_solved[level].duplicate(),
+			"strikes": guest_strikes[level].duplicate()}}
+	var parts := path.split("/")  # "", "runs", "guest-<level>", "attempts" or "finish"
+	var level := int(parts[2].trim_prefix("guest-")) if parts.size() == 4 and parts[2].begins_with("guest-") else 0
+	if not GUEST_LEVELS.has(level):
+		return {"ok": false, "error": "Guest mode cannot reach the server.", "status": 404}
+	if parts[3] == "attempts":
+		var rooms: Array = guest_rooms[level]
+		for i in range(rooms.size()):
+			if _guest_id(level, rooms[i]) == body.question_id:
+				return {"ok": true, "data": _guest_attempt(level, i, body.response)}
+		return {"ok": false, "error": "Question does not belong to this run.", "status": 404}
+	if parts[3] == "finish":
+		if not guest_run_done[level] and guest_solved[level].size() < guest_rooms[level].size():
+			return {"ok": false, "error": "Answer every question correctly before finishing.", "status": 409}
+		if level not in guest_badges:
+			guest_badges.append(level)
+		guest_run_done[level] = true
+		return {"ok": true, "data": _guest_profile()}
 	return {"ok": false, "error": "Guest mode cannot reach the server.", "status": 404}
 
-func _guest_id(index: int) -> String:
-	return "guest-%d" % int(guest_rooms[index].ordinal)
+# Mirrors draw() in server/gameplay.py: without a draw rule a run plays every room; with one, each
+# pool in the rule gives all its rooms, or `take` of them at random, kept in ordinal order.
+func _guest_draw(bank: Dictionary) -> Array:
+	var rooms: Array = bank.rooms
+	if not bank.has("draw"):
+		return rooms.duplicate()
+	var picked: Array = []
+	for slot in bank.draw:
+		var pool := rooms.filter(func(room): return room.get("pool") == slot.pool)
+		var shuffled := pool.duplicate()
+		shuffled.shuffle()
+		var chosen: Array = shuffled.slice(0, mini(int(slot.get("take", pool.size())), pool.size())).map(
+			func(room): return int(room.ordinal))
+		picked.append_array(pool.filter(func(room): return int(room.ordinal) in chosen))
+	return picked
+
+func _guest_id(level: int, room: Dictionary) -> String:
+	return "guest-%d-%d" % [level, int(room.ordinal)]
 
 # Mirrors attempt() and strike() in server/gameplay.py: a gate's third strike reopens the gate before it.
-func _guest_attempt(index: int, response: Dictionary) -> Dictionary:
-	var id := _guest_id(index)
-	var room: Dictionary = guest_rooms[index]
-	if id in guest_solved:
+func _guest_attempt(level: int, index: int, response: Dictionary) -> Dictionary:
+	var rooms: Array = guest_rooms[level]
+	var solved: Array = guest_solved[level]
+	var strikes: Dictionary = guest_strikes[level]
+	var room: Dictionary = rooms[index]
+	var id := _guest_id(level, room)
+	if id in solved:
 		return {"is_correct": true, "explanation": room.explanation}
-	var result := {"is_correct": PuzzleRoom.grade(room.payload, response), "explanation": room.explanation,
-		"strikes": 0, "setback_question_id": null}
-	if result.is_correct:
-		guest_solved.append(id)
-		if index + 1 < guest_rooms.size():
-			guest_strikes.erase(_guest_id(index + 1))
+	var payload: Dictionary = room.payload
+	var correct: bool
+	match str(payload.kind):
+		"maze":
+			correct = MazeRoom.grade(payload, response)
+		"code":
+			correct = CodeRoom.grade(payload, response)
+		_:
+			correct = PuzzleRoom.grade(payload, response)
+	var result := {"is_correct": correct, "explanation": room.explanation, "strikes": 0, "setback_question_id": null}
+	if correct:
+		solved.append(id)
+		if index + 1 < rooms.size():
+			strikes.erase(_guest_id(level, rooms[index + 1]))
 		return result
-	result.strikes = int(guest_strikes.get(id, 0)) + 1
-	guest_strikes[id] = result.strikes
+	result.strikes = int(strikes.get(id, 0)) + 1
+	strikes[id] = result.strikes
 	if result.strikes >= PuzzleRoom.STRIKES:
-		var target := _guest_id(index - 1) if index > 0 and _guest_id(index - 1) in guest_solved else id
-		guest_solved.erase(target)
-		guest_strikes.erase(target)
-		guest_strikes.erase(id)
+		var before := _guest_id(level, rooms[index - 1]) if index > 0 else ""
+		var target := before if before in solved else id
+		solved.erase(target)
+		strikes.erase(target)
+		strikes.erase(id)
 		result.setback_question_id = target
 	return result
 
 func _guest_profile() -> Dictionary:
-	var badges := [{"slug": "badge_1", "name": "Basic Instructions Master"}] if guest_badge else []
-	return {"badges": badges, "progress_ratio": 1.0 if guest_badge else 0.0}
+	var badges: Array = []
+	for level in GUEST_LEVELS:
+		if level in guest_badges:
+			badges.append(GUEST_LEVELS[level].badge)
+	return {"badges": badges, "progress_ratio": float(badges.size()) / GUEST_LEVELS.size()}

@@ -47,6 +47,10 @@ def main() -> None:
             preset = preset.replace('custom_template/release=""',
                                     f'custom_template/release="{template.as_posix()}"')
         (stage / "export_presets.cfg").write_text(preset)
+        # A fresh copy has nothing imported yet, but the project theme loads its fonts at startup,
+        # so a first pass imports everything and the logged second pass checks for real errors.
+        subprocess.run([args.godot, "--headless", "--path", str(stage), "--editor", "--import"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run([args.godot, "--headless", "--path", str(stage),
                         "--editor", "--import", "--log-file", str(root / "build/import.log")], check=True)
         subprocess.run([args.godot, "--headless", "--path", str(stage),

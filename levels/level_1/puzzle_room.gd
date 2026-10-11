@@ -1,5 +1,5 @@
 extends RefCounted
-## One Level 1 gate: press instruction keys until register x5 matches the target pattern.
+## One Level 1 gate: press instruction keys until register t0 (x5) matches the target pattern.
 ## The gate reports an attempt by itself when the bulbs match or the moves run out. The
 ## interpreter mirrors server/puzzles.py; the server replays the presses and has the final say.
 
@@ -7,6 +7,7 @@ signal attempt
 
 const Visuals := preload("res://levels/level_1/visuals.gd")
 const Style := preload("res://ui/style.gd")
+const Registers := preload("res://ui/registers.gd")
 const R_TYPE := ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu"]
 const STRIKES := 3  ## Failed tries before the Chip Chomper drags the robot back; matches server/gameplay.py.
 
@@ -68,6 +69,10 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	hint_label.hide()
 	box.add_child(hint_label)
 	_sync()
+
+## The instructions this gate's keys run, for the instruction guide.
+func guide() -> Dictionary:
+	return {"lines": buttons.map(func(button): return asm(button))}
 
 func answer() -> Dictionary:
 	return {"moves": moves.duplicate()}
@@ -189,9 +194,9 @@ func _warn_overflow(ins: Dictionary, before: Array) -> void:
 	var a: int = before[int(ins.rs1)]
 	var b: int = before[int(ins.rs2)] if ins.has("rs2") else int(ins.imm)
 	if signed_view:
-		a = _signed(a, width)
+		a = signed(a, width)
 		if ins.has("rs2"):
-			b = _signed(b, width)
+			b = signed(b, width)
 	var exact := a - b if op == "sub" else a + b
 	var low := -(1 << (width - 1)) if signed_view else 0
 	var high := (1 << (width - 1)) - 1 if signed_view else mask
@@ -250,9 +255,9 @@ static func face_for(ins: Dictionary, value_mask: int) -> Array:
 		"addi":
 			return ["+%d" % imm if imm >= 0 else "-%d" % -imm, "add %d" % imm if imm >= 0 else "subtract %d" % -imm, "math"]
 		"add":
-			return ["+ x%d" % int(ins.rs2), "add register x%d" % int(ins.rs2), "math"]
+			return ["+ " + Registers.name(int(ins.rs2)), "add register " + Registers.name(int(ins.rs2)), "math"]
 		"sub":
-			return ["- x%d" % int(ins.rs2), "subtract register x%d" % int(ins.rs2), "math"]
+			return ["- " + Registers.name(int(ins.rs2)), "subtract register " + Registers.name(int(ins.rs2)), "math"]
 		"slli":
 			return ["<< %d" % imm, "shift left", "shift"]
 		"srli":
@@ -270,14 +275,15 @@ static func face_for(ins: Dictionary, value_mask: int) -> Array:
 
 static func asm(ins: Dictionary) -> String:
 	var op := str(ins.op)
-	var last := "x%d" % int(ins.rs2) if ins.has("rs2") else "0x%02X" % int(ins.imm) if op in ["andi", "ori", "xori"] else str(int(ins.imm))
-	return "%s x%d, x%d, %s" % [op, int(ins.rd), int(ins.rs1), last]
+	var last := Registers.name(int(ins.rs2)) if ins.has("rs2") else "0x%02X" % int(ins.imm) if op in ["andi", "ori", "xori"] \
+		else str(int(ins.imm))
+	return "%s %s, %s, %s" % [op, Registers.name(int(ins.rd)), Registers.name(int(ins.rs1)), last]
 
-static func _signed(value: int, bits: int = 32) -> int:
+static func signed(value: int, bits: int = 32) -> int:
 	value &= (1 << bits) - 1
 	return value - (1 << bits) if value >> (bits - 1) != 0 else value
 
-static func _execute(op: String, a: int, b: int, bits: int) -> int:
+static func execute(op: String, a: int, b: int, bits: int) -> int:
 	if op == "sltiu":
 		op = "sltu"
 	elif op not in R_TYPE:
@@ -292,8 +298,8 @@ static func _execute(op: String, a: int, b: int, bits: int) -> int:
 		"xor": return a ^ b
 		"sll": return (a << shift) & value_mask
 		"srl": return a >> shift
-		"sra": return (_signed(a, bits) >> shift) & value_mask
-		"slt": return int(_signed(a, bits) < _signed(b, bits))
+		"sra": return (signed(a, bits) >> shift) & value_mask
+		"slt": return int(signed(a, bits) < signed(b, bits))
 		"sltu": return int(a < b)
 	return 0
 
@@ -307,7 +313,7 @@ static func run_program(program: Array, initial: Dictionary, bits: int = 32) -> 
 	for ins in program:
 		var second: int = regs[int(ins.rs2)] if ins.has("rs2") else int(ins.imm) & value_mask
 		if int(ins.rd) != 0:
-			regs[int(ins.rd)] = _execute(str(ins.op), regs[int(ins.rs1)], second, bits)
+			regs[int(ins.rd)] = execute(str(ins.op), regs[int(ins.rs1)], second, bits)
 	return regs
 
 ## Mirrors grade_puzzle in server/puzzles.py for guest mode, where the game grades itself.

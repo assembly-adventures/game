@@ -1,8 +1,19 @@
 extends Control
+## Runs one level of puzzle gates: loads or resumes the run, shows each unsolved gate, submits
+## attempts, plays the Chip Chomper's strikes and setbacks, and awards the badge. Each level's
+## scene sets which level it is; the gate's payload kind picks the puzzle that plays inside it.
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
-const Visuals := preload("res://levels/level_1/visuals.gd")
+const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_room.gd"),
+	"code": preload("res://levels/level_2/code_room.gd")}
+const Corridor := preload("res://ui/corridor.gd")
+const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
+const InstructionGuide := preload("res://ui/instruction_guide.gd")
 const Style := preload("res://ui/style.gd")
+
+@export var level_id := 1
+@export_file("*.svg") var badge_icon := "res://images/1.svg"
+@export_multiline var finish_line := "The robot reached the CPU and the Chip Chomper ran off. Basic Instructions Master!"
 
 var run: Dictionary = {}
 var question: Dictionary = {}
@@ -12,7 +23,7 @@ var strikes: Dictionary = {}
 var choices: Array = []
 var tiles: Array = []
 var selectors: Array = []
-var puzzle: PuzzleRoom = null
+var puzzle = null  # The current gate's room (PuzzleRoom, MazeRoom, or CodeRoom), chosen by payload kind.
 var request_id: String = ""
 var pending_answer: Dictionary = {}
 var busy: bool = false
@@ -20,12 +31,16 @@ var ready_for_next: bool = false
 var started_at: int = 0
 var title: Label
 var prompt_label: Label
+var code_box: PanelContainer
+var code_label: Label
 var options_box: VBoxContainer
 var feedback: Label
 var submit: Button
 var retry: Button
 var corridor
 var sound_button: Button
+var guide_button: Button
+var guide  # The instruction guide, drawn over everything when open.
 var layout_root: MarginContainer
 
 func _ready() -> void:
@@ -34,7 +49,7 @@ func _ready() -> void:
 
 func _build_ui() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var background := Visuals.CircuitBackdrop.new()
+	var background := CircuitBackdrop.new()
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 	var margins := MarginContainer.new()
@@ -46,7 +61,8 @@ func _build_ui() -> void:
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 10)
 	margins.add_child(layout)
-	# Top bar: back to the Control Center, the gate count, and whether progress is kept.
+	# Top bar: back to the Control Center, the gate count, the instruction guide, and whether progress
+	# is kept.
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 12)
 	layout.add_child(bar)
@@ -60,17 +76,24 @@ func _build_ui() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 24)
 	bar.add_child(title)
+	guide_button = Button.new()
+	guide_button.text = "Instruction guide ▼"
+	guide_button.tooltip_text = "What each instruction on this gate means (I)"
+	guide_button.focus_mode = Control.FOCUS_NONE
+	guide_button.pressed.connect(_toggle_guide)
+	guide_button.hide()
+	bar.add_child(guide_button)
 	var saving := Label.new()
 	saving.text = "Guest: progress is not saved" if PlayerData.guest else "Progress saves automatically"
 	saving.add_theme_font_size_override("font_size", 13)
-	saving.add_theme_color_override("font_color", Color(Visuals.TEXT, 0.55))
+	saving.add_theme_color_override("font_color", Color(Style.TEXT, 0.55))
 	bar.add_child(saving)
 	sound_button = Button.new()
 	sound_button.focus_mode = Control.FOCUS_NONE
 	sound_button.pressed.connect(_toggle_sound)
 	bar.add_child(sound_button)
 	_update_sound_label()
-	corridor = Visuals.Corridor.new()
+	corridor = Corridor.new()
 	corridor.bitten.connect(func():
 		Audio.play("chomp")
 		_shake(12.0))
@@ -83,13 +106,43 @@ func _build_ui() -> void:
 	frame.add_child(scroll)
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Lets a room's puzzle grow into spare height.
 	content.add_theme_constant_override("separation", 12)
 	scroll.add_child(content)
+	# The prompt, with any code it refers to in a monospace box beside it.
+	var heading := HBoxContainer.new()
+	heading.add_theme_constant_override("separation", 16)
+	content.add_child(heading)
 	prompt_label = Label.new()
 	prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	prompt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prompt_label.add_theme_font_size_override("font_size", 20)
-	content.add_child(prompt_label)
+	heading.add_child(prompt_label)
+	code_box = PanelContainer.new()
+	var code_style := Style.panel_style()
+	code_style.bg_color = Color(0, 0, 0, 0.35)
+	code_style.border_color = Color(Style.GREEN, 0.45)
+	code_style.set_corner_radius_all(10)
+	code_style.set_content_margin_all(10)
+	code_style.content_margin_left = 14
+	code_style.content_margin_right = 14
+	code_box.add_theme_stylebox_override("panel", code_style)
+	code_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	heading.add_child(code_box)
+	var code_row := HBoxContainer.new()
+	code_row.add_theme_constant_override("separation", 10)
+	code_box.add_child(code_row)
+	var language := Label.new()
+	language.text = "C"
+	language.add_theme_font_size_override("font_size", 13)
+	language.add_theme_color_override("font_color", Color(Style.GREEN, 0.8))
+	code_row.add_child(language)
+	code_label = Label.new()
+	code_label.add_theme_font_override("font", Style.MONO)
+	code_label.add_theme_font_size_override("font_size", 16)
+	code_row.add_child(code_label)
 	options_box = VBoxContainer.new()
+	options_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	options_box.add_theme_constant_override("separation", 14)
 	content.add_child(options_box)
 	feedback = Label.new()
@@ -106,13 +159,27 @@ func _build_ui() -> void:
 	retry.text = "Retry connection"
 	retry.pressed.connect(_retry)
 	layout.add_child(retry)
+	guide = InstructionGuide.new()
+	guide.toggled.connect(func(open: bool): guide_button.text = "Instruction guide ▲" if open else "Instruction guide ▼")
+	add_child(guide)
 
-## Number keys press instruction keys; Backspace undoes, R restarts, Enter continues.
+## Number keys press instruction keys; Backspace undoes, R restarts, Enter continues, and I opens
+## the instruction guide. A room can claim other keys first (Level 2 steps the robot with the arrow
+## keys). While the guide is open the gate waits, and Escape or I closes it.
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	var key: int = event.keycode
-	if key in [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE] and submit.visible and not submit.disabled:
+	if guide.visible:
+		if key in [KEY_ESCAPE, KEY_I]:
+			guide.close()
+		get_viewport().set_input_as_handled()
+		return
+	if puzzle != null and puzzle.has_method("handle_key") and puzzle.handle_key(key):
+		pass
+	elif key == KEY_I and guide_button.visible:
+		_toggle_guide()
+	elif key in [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE] and submit.visible and not submit.disabled:
 		_submit()
 	elif puzzle != null and key >= KEY_1 and key <= KEY_9:
 		puzzle.press(key - KEY_1)
@@ -124,6 +191,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 
+## Opens the instruction guide for the gate on screen, hanging under its button, or closes it.
+func _toggle_guide() -> void:
+	if guide.visible:
+		guide.close()
+	elif puzzle != null and puzzle.has_method("guide"):
+		var corner := guide_button.get_global_rect()
+		guide.open(puzzle.guide(), Vector2(corner.end.x, corner.end.y + 8))
+
 func _toggle_sound() -> void:
 	Audio.set_enabled(not Audio.enabled)
 	_update_sound_label()
@@ -134,8 +209,8 @@ func _update_sound_label() -> void:
 func _load_run() -> void:
 	_set_busy(true)
 	retry.hide()
-	title.text = "Loading level 1…"
-	var result := await PlayerData.api_request("/runs", HTTPClient.METHOD_POST, {"level_id": 1})
+	title.text = "Loading level %d…" % level_id
+	var result := await PlayerData.api_request("/runs", HTTPClient.METHOD_POST, {"level_id": level_id})
 	_set_busy(false)
 	if not result.ok:
 		feedback.text = result.error
@@ -170,17 +245,20 @@ func _show_next_unsolved() -> void:
 	# Gates open by themselves, so the button only appears once there is somewhere to go.
 	submit.visible = not is_puzzle
 	retry.hide()
-	title.text = "Level 1 · %s %d of %d" % ["Gate" if is_puzzle else "Question", question_index + 1, run.questions.size()]
+	title.text = "Level %d · %s %d of %d" % [level_id, "Gate" if is_puzzle else "Question", question_index + 1,
+		run.questions.size()]
 	prompt_label.text = question.prompt
 	corridor.walk_to(question_index)
 	corridor.set_strikes(int(strikes.get(str(question.id), 0)))
-	if question.get("code_snippet") != null:
-		prompt_label.text += "\n\n" + str(question.code_snippet)
+	code_box.visible = question.get("code_snippet") != null
+	code_label.text = "" if question.get("code_snippet") == null else str(question.code_snippet)
 	choices.clear()
 	selectors.clear()
 	puzzle = null
 	tiles = question.payload.get("tiles", []).duplicate(true)
+	guide.close()
 	_render_options()
+	guide_button.visible = puzzle != null and puzzle.has_method("guide")
 	started_at = Time.get_ticks_msec()
 
 func _clear_options() -> void:
@@ -192,7 +270,7 @@ func _render_options() -> void:
 	_clear_options()
 	match question.type:
 		"puzzle":
-			puzzle = PuzzleRoom.new(question.payload, options_box, question.get("hint"))
+			puzzle = ROOMS[str(question.payload.kind)].new(question.payload, options_box, question.get("hint"))
 			puzzle.attempt.connect(_submit)
 		"multiple_choice":
 			var group := ButtonGroup.new()
@@ -312,7 +390,7 @@ func _submit() -> void:
 			strikes.erase(str(run.questions[question_index + 1].id))
 		var explanation := "" if result.data.get("explanation") == null else " " + str(result.data.explanation)
 		if puzzle != null:
-			var stars := puzzle.stars()
+			var stars: int = puzzle.stars()
 			puzzle.solved()
 			corridor.open_gate(question_index, stars)
 			Audio.play("open")
@@ -331,10 +409,11 @@ func _submit() -> void:
 		Audio.play("strike", -4.0)
 		_shake(4.0)
 		puzzle.failed()
-		var warning := "Try a different order."
+		var miss: String = puzzle.miss_text() if puzzle.has_method("miss_text") else "Out of moves!"
+		var warning: String = puzzle.retry_tip() if puzzle.has_method("retry_tip") else "Try a different order."
 		if count == PuzzleRoom.STRIKES - 1:
 			warning = "One more and the Chip Chomper drags you back a gate." if question_index > 0 else "One more and the Chip Chomper makes you start over."
-		feedback.text = "Out of moves! Strike %d of %d. %s" % [count, PuzzleRoom.STRIKES, warning]
+		feedback.text = "%s Strike %d of %d. %s" % [miss, count, PuzzleRoom.STRIKES, warning]
 	else:
 		feedback.text = "Not quite. Try again — retries are allowed."
 
@@ -372,17 +451,20 @@ func _finish() -> void:
 	PlayerData.apply_profile(result.data)
 	_clear_options()
 	puzzle = null
+	guide.close()
+	guide_button.hide()
+	code_box.hide()
 	corridor.finish()
 	Audio.play("complete")
 	_show_badge()
-	prompt_label.text = "The robot reached the CPU and the Chip Chomper ran off. Basic Instructions Master!"
+	prompt_label.text = finish_line
 	title.text = "Level complete — badge earned!" if PlayerData.guest else "Level complete — badge saved!"
 	feedback.text = "Guest badges reset when you reload." if PlayerData.guest else "Your badge will be here when you sign in again."
 	retry.hide()
 
 func _show_badge() -> void:
 	var badge := TextureRect.new()
-	badge.texture = load("res://images/1.svg")
+	badge.texture = load(badge_icon)
 	badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	badge.custom_minimum_size = Vector2(220, 220)
