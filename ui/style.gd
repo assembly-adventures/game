@@ -29,6 +29,81 @@ static func rounded(canvas: CanvasItem, rect: Rect2, fill: Color, radius: int = 
 	canvas.draw_style_box(style, rect)
 
 
+## A numbered step of a gate: what to do, with an optional note on how underneath (or, `inline`,
+## on the same line after it). Every level numbers its steps beside the controls they use. With
+## `wrap`, the text fills the row and wraps; without it, the row is as wide as its text, so it can
+## be centred. The note's label is the row's "note" meta, so a room can change it.
+static func step(number: int, text: String, note: String = "", wrap: bool = true, inline: bool = false) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var badge := Label.new()
+	badge.text = str(number)
+	badge.custom_minimum_size = Vector2(19, 19)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.add_theme_font_size_override("font_size", 12)
+	badge.add_theme_color_override("font_color", BG)
+	var disc := StyleBoxFlat.new()
+	disc.bg_color = GOLD
+	disc.set_corner_radius_all(10)
+	badge.add_theme_stylebox_override("normal", disc)
+	row.add_child(badge)
+	var words: BoxContainer = HBoxContainer.new() if inline else VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL if wrap else Control.SIZE_SHRINK_BEGIN
+	words.add_theme_constant_override("separation", 10 if inline else 0)
+	row.add_child(words)
+	for part in [[text, 14, Color(TEXT, 0.92)], [note, 12, Color(TEXT, 0.55)]]:
+		var label := Label.new()
+		label.text = part[0]
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wrap and not inline else TextServer.AUTOWRAP_OFF
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", part[1])
+		label.add_theme_color_override("font_color", part[2])
+		words.add_child(label)
+	words.get_child(1).visible = not note.is_empty()
+	row.set_meta("note", words.get_child(1))
+	return row
+
+
+## The hint, once a room shows it: a gold-edged box over the bottom of `view`, so showing it never
+## moves the controls; or, not as an `overlay`, the last item of `view` (a column whose other items
+## make room). Returns its label; the box (hidden until shown) is the label's parent.
+static func hint_box(view: Control, overlay: bool = true) -> Label:
+	var box := PanelContainer.new()
+	var look := StyleBoxFlat.new()
+	look.bg_color = Color(BG, 0.94)
+	look.border_color = Color(GOLD, 0.7)
+	look.set_border_width_all(1)
+	look.set_corner_radius_all(8)
+	look.set_content_margin_all(8)
+	box.add_theme_stylebox_override("panel", look)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if overlay:
+		box.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		box.offset_left = 4
+		box.offset_right = -4
+		box.offset_top = -4
+		box.offset_bottom = -4
+		box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	box.hide()
+	view.add_child(box)
+	var label := Label.new()
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_color_override("font_color", GOLD)
+	label.add_theme_font_size_override("font_size", 14)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(label)
+	return label
+
+
+## The same numbered badge, for headings a view draws itself; `center` is the badge's middle.
+static func draw_step_badge(canvas: Control, center: Vector2, number: int) -> void:
+	canvas.draw_circle(center, 9.5, GOLD)
+	canvas.draw_string(canvas.get_theme_default_font(), center + Vector2(-9.5, 4.5), str(number),
+		HORIZONTAL_ALIGNMENT_CENTER, 19, 12, BG)
+
+
 static func panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = PANEL

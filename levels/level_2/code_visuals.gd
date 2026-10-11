@@ -35,6 +35,8 @@ class CodeView extends Control:
 	var end := CODE_BASE  # Just past the last instruction: running off the end finishes the program.
 	var returns := false  # Whether a jalr can return to main's caller, so the OS gets a row.
 	var ends := true  # Whether the program can finish by running off its end, so the end gets a row.
+	var note := "one instruction every 4 bytes"  # Beside the CODE heading.
+	var step := 0  # When the code is where a numbered step happens, its number (drawn before the note).
 	var memory_rows: Array = []  # {"address", "label", "stack"}
 	var memory: Dictionary = {}
 	var stack_top := -1
@@ -217,8 +219,12 @@ class CodeView extends Control:
 		var font := get_theme_default_font()
 		var width := code_width()
 		draw_string(font, Vector2(LEFT, 14), "CODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
-		draw_string(font, Vector2(LEFT + 42, 14), "one instruction every 4 bytes", HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-			Color(TEXT, 0.3))
+		var note_x := LEFT + 42
+		if step > 0:
+			Style.draw_step_badge(self, Vector2(note_x + 9.5, 9), step)
+			note_x += 26
+		draw_string(font, Vector2(note_x, 14), note, HORIZONTAL_ALIGNMENT_LEFT, size.x - note_x - 4, 14 if step > 0 else 12,
+			Color(TEXT, 0.92) if step > 0 else Color(TEXT, 0.3))
 		Style.rounded(self, Rect2(Vector2(LEFT, TOP - 4), Vector2(width - LEFT, row_y(rows.size()) - TOP + 8)),
 			Color(0, 0, 0, 0.25).lerp(Color(GREEN, 0.12), win), 8, Color(TEXT, 0.1).lerp(GREEN, win), 1)
 		for i in range(rows.size()):
@@ -329,6 +335,11 @@ class CodeView extends Control:
 ## The room's tests: each one's inputs and what it expects, then how the last run went.
 class TestCards extends Control:
 	const CARD := 38.0
+	var title := "TESTS":  # Empty for no heading row: the cards start at the top.
+		set(value):
+			title = value
+			_fit()
+	var subtitle := "the program must pass every one"
 	var lines: Array = []  # One description per test.
 	var results: Array = []  # "" until run, then "pass" or "fail".
 	var details: Array = []
@@ -341,8 +352,14 @@ class TestCards extends Control:
 		for k in range(lines.size()):
 			results.append("")
 			details.append("")
-		custom_minimum_size = Vector2(0, 20 + (CARD + 4) * lines.size())
+		_fit()
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _top() -> float:
+		return 0.0 if title.is_empty() else 20.0
+
+	func _fit() -> void:
+		custom_minimum_size = Vector2(0, _top() + (CARD + 4) * lines.size())
 
 	func clear() -> void:
 		running = -1
@@ -362,11 +379,12 @@ class TestCards extends Control:
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		var jitter := sin(t * 50.0) * shake
-		draw_string(font, Vector2(2, 14), "TESTS", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
-		draw_string(font, Vector2(48, 14), "the program must pass every one", HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-			Color(TEXT, 0.3))
+		if not title.is_empty():
+			draw_string(font, Vector2(2, 14), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
+			var title_width := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			draw_string(font, Vector2(title_width + 12, 14), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.3))
 		for k in range(lines.size()):
-			var rect := Rect2(Vector2(jitter, 20 + (CARD + 4) * k), Vector2(size.x, CARD))
+			var rect := Rect2(Vector2(jitter, _top() + (CARD + 4) * k), Vector2(size.x, CARD))
 			var color := GREEN if results[k] == "pass" else RED if results[k] == "fail" else GOLD if running == k \
 				else Color(TEXT, 0.3)
 			Style.rounded(self, rect, Color(color, 0.08), 8, color, 2 if running == k else 1)

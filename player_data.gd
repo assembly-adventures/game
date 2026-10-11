@@ -5,11 +5,13 @@ signal profile_changed
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const MazeRoom := preload("res://levels/level_2/maze_room.gd")
 const CodeRoom := preload("res://levels/level_2/code_room.gd")
+const CallMachine := preload("res://levels/level_3/call_machine.gd")
 ## The levels guest mode can play, each from a copy of its gates kept in sync with the database. A
 ## level's copy is a list of rooms, or its whole bank and draw rule when its runs draw their rooms.
 const GUEST_LEVELS := {
 	1: {"rooms": "res://levels/level_1/guest_rooms.json", "badge": {"slug": "badge_1", "name": "Basic Instructions Master"}},
 	2: {"rooms": "res://levels/level_2/guest_rooms.json", "badge": {"slug": "badge_2", "name": "Memory Master"}},
+	3: {"rooms": "res://levels/level_3/guest_rooms.json", "badge": {"slug": "badge_3", "name": "Stack Master"}},
 }
 
 var earned_badges: Array[String] = []
@@ -123,7 +125,7 @@ func _guest_request(path: String, body: Dictionary) -> Dictionary:
 	if path == "/runs":
 		var level := int(body.get("level_id", 0))
 		if not GUEST_LEVELS.has(level):
-			return {"ok": false, "error": "Guest mode only includes Levels 1 and 2.", "status": 404}
+			return {"ok": false, "error": "Guest mode only includes Levels 1 to 3.", "status": 404}
 		if guest_run_done[level]:
 			guest_rooms[level] = _guest_draw(guest_banks[level])
 			guest_solved[level] = []
@@ -190,6 +192,8 @@ func _guest_attempt(level: int, index: int, response: Dictionary) -> Dictionary:
 			correct = MazeRoom.grade(payload, response)
 		"code":
 			correct = CodeRoom.grade(payload, response)
+		"walk", "frame", "elevator", "lawyer":
+			correct = CallMachine.grade(payload, response)
 		_:
 			correct = PuzzleRoom.grade(payload, response)
 	var result := {"is_correct": correct, "explanation": room.explanation, "strikes": 0, "setback_question_id": null}

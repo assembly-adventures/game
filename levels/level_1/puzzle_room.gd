@@ -8,7 +8,7 @@ signal attempt
 const Visuals := preload("res://levels/level_1/visuals.gd")
 const Style := preload("res://ui/style.gd")
 const Registers := preload("res://ui/registers.gd")
-const R_TYPE := ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu"]
+const R_TYPE := ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu", "mul", "div", "rem"]
 const STRIKES := 3  ## Failed tries before the Chip Chomper drags the robot back; matches server/gameplay.py.
 
 var payload: Dictionary
@@ -38,20 +38,43 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	buttons = payload.buttons
 	hint = "" if hint_text == null else str(hint_text)
 	var display := str(payload.get("display", "unsigned"))
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	box.add_child(column)
 	strip = Visuals.RegisterStrip.new(width, display == "signed", display == "hex", main)
 	strip.target = int(payload.goal[main]) & mask
 	for reg in payload.get("initial", {}):
 		if reg != main:
 			strip.extras[reg] = int(payload.initial[reg]) & mask
 	strip.show_value(_value())
-	box.add_child(strip)
+	column.add_child(strip)
+	# The keys stay centred, with step 1 just left of them and the hint, once asked for, just right,
+	# so showing it never moves anything.
 	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 16)
+	column.add_child(row)
+	var left := HBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.alignment = BoxContainer.ALIGNMENT_END
+	row.add_child(left)
+	var press_step := Style.step(1, "Press a key to run it on %s" % Registers.abi(main), "", false)
+	press_step.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	left.add_child(press_step)
 	for i in range(buttons.size()):
 		keys.append(_make_key(i))
 		row.add_child(keys[i])
-	box.add_child(row)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(right)
+	hint_label = Label.new()
+	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_label.add_theme_color_override("font_color", Visuals.GOLD)
+	hint_label.add_theme_font_size_override("font_size", 15)
+	hint_label.hide()
+	right.add_child(hint_label)
+	column.add_child(Style.step(2, "Match the target in %d moves or fewer" % int(payload.max_moves),
+		"The gate opens by itself. Running out of moves is a strike; Undo and Restart are free.", true, true))
 	var tools := HBoxContainer.new()
 	tools.add_theme_constant_override("separation", 10)
 	tray = Visuals.MoveTray.new()
@@ -61,13 +84,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	hint_button = _tool("Hint", show_hint, "")
 	for tool in [undo_button, restart_button, hint_button]:
 		tools.add_child(tool)
-	box.add_child(tools)
-	hint_label = Label.new()
-	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.add_theme_color_override("font_color", Visuals.GOLD)
-	hint_label.add_theme_font_size_override("font_size", 18)
-	hint_label.hide()
-	box.add_child(hint_label)
+	column.add_child(tools)
 	_sync()
 
 ## The instructions this gate's keys run, for the instruction guide.
@@ -301,7 +318,23 @@ static func execute(op: String, a: int, b: int, bits: int) -> int:
 		"sra": return (signed(a, bits) >> shift) & value_mask
 		"slt": return int(signed(a, bits) < signed(b, bits))
 		"sltu": return int(a < b)
+		"mul": return (a * b) & value_mask
+		"div", "rem": return divide(op, a, b, bits)
 	return 0
+
+## RV32M division: it rounds toward zero. Dividing by zero gives all ones (div) or the dividend
+## (rem); the most negative number divided by -1 overflows, giving itself (div) and 0 (rem).
+## Mirrors multiply_divide in server/puzzles.py.
+static func divide(op: String, a: int, b: int, bits: int) -> int:
+	var value_mask := (1 << bits) - 1
+	var x := signed(a, bits)
+	var y := signed(b, bits)
+	if y == 0:
+		return value_mask if op == "div" else a & value_mask
+	if x == -(1 << (bits - 1)) and y == -1:
+		return a & value_mask if op == "div" else 0
+	var quotient := absi(x) / absi(y) * (1 if (x < 0) == (y < 0) else -1)
+	return (quotient if op == "div" else x - quotient * y) & value_mask
 
 static func run_program(program: Array, initial: Dictionary, bits: int = 32) -> Array:
 	var value_mask := (1 << bits) - 1

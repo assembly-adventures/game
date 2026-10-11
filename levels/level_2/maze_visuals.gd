@@ -57,6 +57,7 @@ class MazeBoard extends Control:
 	var flashes: Dictionary = {}
 	var hover := -1
 	var help := ""
+	var step := 0  # The numbered step the help line is (drawn as a badge before it), or 0.
 	var status := ""
 	var status_color := TEXT
 	var message := ""
@@ -271,7 +272,12 @@ class MazeBoard extends Control:
 	## The tiles, under the characters: floor, walls, doors, glass, the exit, and each word's value.
 	func _draw() -> void:
 		var font := get_theme_default_font()
-		draw_string(font, Vector2(4, 14), help, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.68, 13, Color(TEXT, 0.55))
+		var help_x := 4.0
+		if step > 0:
+			Style.draw_step_badge(self, Vector2(13.5, 9), step)
+			help_x = 30.0
+		draw_string(font, Vector2(help_x, 14), help, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.7 - help_x, 14 if step > 0 else 13,
+			Color(TEXT, 0.92 if step > 0 else 0.55))
 		draw_string(font, Vector2(0, 14), status, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 13, status_color)
 		var here := robot_cell()
 		for i in range(tiles.length()):

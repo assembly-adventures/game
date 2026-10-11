@@ -60,6 +60,8 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	main.add_theme_constant_override("separation", 14)
 	box.add_child(main)
 	view = CodeVisuals.CodeView.new(room)
+	view.step = 1
+	view.note = "Pick a line for each blank"
 	view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	view.blank_clicked.connect(_on_blank_clicked)
 	main.add_child(view)
@@ -70,15 +72,12 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	chips = MazeVisuals.RegisterChips.new()
 	_setup_chips()
 	side.add_child(chips)
+	side.add_child(Style.step(2, "Run the tests", "the program must pass every one"))
 	cards = CodeVisuals.TestCards.new(_test_lines())
+	cards.title = ""
 	side.add_child(cards)
-	# The hint sits beside the code, where the room never pushes it out of sight.
-	hint_label = Label.new()
-	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.add_theme_color_override("font_color", Style.GOLD)
-	hint_label.add_theme_font_size_override("font_size", 15)
-	hint_label.hide()
-	side.add_child(hint_label)
+	# The hint sits over the bottom of the code, so showing it never moves the controls.
+	hint_label = Style.hint_box(view)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_child(spacer)
@@ -178,7 +177,6 @@ func show_hint() -> void:
 	hint_used = true
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
-	hint_label.show()
 	hint_button.modulate = Color.WHITE
 	_sync()
 
@@ -186,7 +184,6 @@ func show_hint() -> void:
 func solved() -> void:
 	locked = true
 	view.celebrate()
-	hint_label.hide()
 	_sync()
 
 ## The server counted the run as a miss: the cards shake, and the lines stay for another try.
@@ -412,10 +409,12 @@ func _sync() -> void:
 	view.editable = not off
 	run_button.disabled = off or not _filled()
 	var count: int = payload.tests.size()
-	run_button.text = "Running…" if playing else "Fill every blank" if not _filled() \
+	run_button.text = "Running…" if playing else "Pick a line for every blank" if not _filled() \
 		else "Run ▶" if count == 1 else "Run all %d tests ▶" % count
 	clear_button.disabled = off or picked.is_empty()
 	hint_button.disabled = disabled or locked or hint_used or hint.is_empty()
+	# The hint steps aside while the robot walks the code, and once the gate opens.
+	hint_label.get_parent().visible = hint_used and not playing and not locked
 
 func _busy() -> bool:
 	return locked or playing or disabled

@@ -2,7 +2,7 @@
 
 Ideas for turning each level into a puzzle that follows the COMP 311 Fall 2026
 calendar ([`311fa26 Schedule - Full Calendar.pdf`](311fa26%20Schedule%20-%20Full%20Calendar.pdf)).
-Levels 1 and 2 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
+Levels 1 to 3 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
 everything else here is a proposal.
 
 ## Design principles
@@ -15,34 +15,53 @@ everything else here is a proposal.
 - **Story first.** Each level repairs a zone of the processor that the Chip
   Chomper corrupted. Wrong attempts "feed the Chomper" instead of showing a red X.
 - **Each room answers the calendar's guiding question** for the day it is taught.
+- **Every gate says plainly what to do.** Its goal comes first, in one line,
+  with the idea it turns on underneath; its steps are numbered beside the
+  controls they use; and the run button names whatever is still missing.
 
 ## Unit 1 — Programming the Machine
 
 ### Level 1 — Wake the Registers (weeks 1–2)
 Registers, arithmetic, binary/hex, signed/unsigned, overflow, logical operations, shifts.
 
-**Implemented** as ten gates in the style of *Calculator: The Game*. Each gate
-shows a target pattern of bulbs above an 8-bit register. The player presses a
-few instruction keys (`+1`, `<< 1`, `flip all`, `and 0x0F`, …) with a small
-move limit. Bits slide for shifts, a carry ripples for adds, and the gate opens
-by itself when every column matches. A robot walks through the gates while the
-Chip Chomper chases it. Running out of moves is a strike, and each strike brings
-the Chomper closer; on the third it bites the robot and drags it back a gate,
-which closes and must be opened again. Undo, restart, and a hint are always
-available, and stars reward solving at par.
+**Implemented** as a bank of twenty-two gates in the style of *Calculator: The
+Game*, ten per run: the four tutorial gates, then one gate drawn from each topic
+pool (hex, masks, flips, signed, overflow, shifts), so every run covers every
+topic but runs differ. Each gate shows a target pattern of bulbs above an 8-bit
+register. The player presses a few instruction keys (`+1`, `<< 1`, `flip all`,
+`and 0x0F`, …) with a small move limit. Bits slide for shifts, a carry ripples
+for adds, and the gate opens by itself when every column matches. A robot walks
+through the gates while the Chip Chomper chases it. Running out of moves is a
+strike, and each strike brings the Chomper closer; on the third it bites the
+robot and drags it back a gate, which closes and must be opened again. Undo,
+restart, and a hint are always available, and stars reward solving at par.
+Because a run sees only one gate per topic, each gate's prompt introduces the
+idea it needs.
 
-| Gate | Idea | New concept |
-| --- | --- | --- |
-| 1 | Press `+1` once | `addi`, the rightmost bulb is worth 1 |
-| 2 | Slide a light from 1 to 8 | `slli` doubles |
-| 3 | Shift, then fill the gap | combining instructions |
-| 4 | Use x6 as an operand | `add` reads two registers |
-| 5 | Move 0x03 to 0x31 | hex digits are 4 bits; `slli 4` |
-| 6 | Stencil 0xFF down to 0x0A | `andi` masks |
-| 7 | Build 0xF0 | `ori` and flipping with `xori 0xFF` |
-| 8 | Turn 5 into −5 | two's complement: flip, then add 1 |
-| 9 | Reach −96 with only +64 and +32 | signed overflow |
-| 10 | Shrink −64 to −8 | `srai` keeps the sign; `srli` doesn't |
+| Gate | Pool | Idea | New concept |
+| --- | --- | --- | --- |
+| 1 | tutorial | Press `+1` once | `addi`, the rightmost bulb is worth 1 |
+| 2 | tutorial | Slide a light from 1 to 8 | `slli` doubles |
+| 3 | tutorial | Shift, then fill the gap | combining instructions |
+| 4 | tutorial | Use t1 as an operand | `add` reads two registers |
+| 5 | hex | Move 0x03 to 0x31 | hex digits are 4 bits; `slli 4` |
+| 6 | masks | Stencil 0xFF down to 0x0A | `andi` masks |
+| 7 | flips | Build 0xF0 | `ori` and flipping with `xori 0xFF` |
+| 8 | signed | Turn 5 into −5 | two's complement: flip, then add 1 |
+| 9 | overflow | Reach −96 with only +64 and +32 | signed overflow |
+| 10 | shifts | Shrink −64 to −8 | `srai` keeps the sign; `srli` doesn't |
+| 11 | hex | Turn 0x3E into 0x50 | a hex digit carries past F, like 9 + 1 |
+| 12 | hex | Build 0x5A from 0x00 | one hex digit (4 bulbs) at a time |
+| 13 | masks | Turn 0x9F into 0x93 | `andi 0xF0` clears the right digit; adding first carries |
+| 14 | masks | Turn 77 into 14 | `andi 0x0F` keeps the remainder after dividing by 16 |
+| 15 | flips | Turn 0xAA into 0x55 | `xori` flips only where its mask is 1 |
+| 16 | flips | Turn 0x0F into 0x30 | `ori` only turns bulbs on; `xori` can turn them off |
+| 17 | signed | Turn −12 into 12 | negating works both ways: flip, then add 1 |
+| 18 | signed | Turn 5 into −120 | the leftmost bulb is worth −128 |
+| 19 | overflow | Turn 200 into 14 by adding | unsigned sums wrap around past 255 |
+| 20 | overflow | Turn −100 into 56 by subtracting | signed overflow going down |
+| 21 | shifts | Shrink −100 to −25 | `srai` halves a negative and keeps its sign |
+| 22 | shifts | Turn 48 into −64 | shifting left can overflow into the sign bit |
 
 ### Level 2 — Memory Maze (weeks 3–4)
 Memory, addresses, `lw`/`sw`, arrays, comparisons, branches, loops, translation from C.
@@ -108,13 +127,71 @@ Ideas not built yet:
 ### Level 3 — Call Stack Tower (weeks 5–6)
 Procedures, `jal`/`jalr`, arguments and return values, calling convention, stack frames, recursion.
 
-- **Tower builder:** nested calls stack frames into a tower. Place `ra`, saved
-  registers, and locals at the right `sp` offsets, or the tower topples on return.
-- **Register heist:** decide who saves what (caller- vs callee-saved) so no
-  value gets clobbered. The run shows exactly which value was "stolen".
-- **Return-address boomerang:** fix a program where `ra` gets overwritten.
-- **Recursion elevator:** predict each `factorial`/`fib` frame going down and
-  each return value coming up.
+**Implemented** as a story of eight walkthroughs students follow along, lined up
+with Lectures 6 and 7 (procedures, the calling convention, stack frames,
+recursion). The rooms play in order, each building on the last, so the level
+doubles as a study tool to replay. (Its first design, a bank of
+answer-the-question rooms (Frame Builder, Recursion Elevator, and Code Lawyer),
+was replaced; the code stays for runs started before the change.)
+
+Each room is a short program played like a movie. Play runs it a line at a time,
+leaving each line up long enough to read its caption (lines repeated on deeper
+floors go faster), while a bar under the caption fills until the next line; Step
+and Back move by hand. The listing lights the line that just ran, the stack
+hangs from the top of memory as a tower of frames (a floor per call, the robot
+riding `sp`, each saved word filling in as it's stored), the registers the room
+watches sit above the code, and a caption says what the line did with its real
+values ("Call triple: ra = 0x10C, the address of the next line, then jump").
+Notes on key lines add the why.
+
+When the walk reaches a move, it stops and the student makes it: the call, what
+a frame saves, where to keep a value across a call, the base case. A good move
+is written into the program (in blue) and the walk goes on. A wrong move plays
+out on the tower at speed, so students see exactly what breaks (`ra` lost and
+the function returning to itself forever, the Chomper's `s0` changed, the tower
+running off the bottom of the stack), then the caption explains why and the room
+rewinds to the move. Wrong moves cost a star, never a strike. When the program
+returns, the Chip Chomper checks the contract (the right value back in `a0`, the
+`s` registers and `sp` as it left them) and the gate opens.
+
+| Room | Title | Program | The student's move | What it shows |
+| --- | --- | --- | --- | --- |
+| 1 | The call | `plus1` calls `triple` | `jal ra, triple` or `j triple` | `jal` leaves a way back in `ra`; `j` doesn't |
+| 2 | The way back | `plus2` calls `inc` twice | push `ra`, or nothing | a function that calls must save `ra` first |
+| 3 | Keeping a value | `plusx` needs x after calling `inc` | keep x in `t0`, or on the stack | `t` registers don't survive a call; the frame does |
+| 4 | Borrowed registers | `plusx` keeps x in `s0` | save `ra` and `s0`, only `ra`, or only `s0` | a function that uses an `s` register saves it |
+| 5 | Down the tower | `sqr(3)` | save `ra` and `s0`, or only `ra` | every call gets its own frame |
+| 6 | The bottom floor | `fact(3)` | stop at x ≤ 1, never, or at x ≥ 1 | recursion needs a base case, or the stack runs out |
+| 7 | Two calls | `fib(3)` | save `ra`, `s0`, and `s1`, or only `ra` and `s0` | save every `s` register you use |
+| 8 | Outrun the Chomper | `fact(6)` while the heap climbs | a 2-word frame, a 3-word one, or only `ra` | every saved word is paid on every floor |
+
+Ideas not built yet:
+
+- **The earlier rooms as practice:** Frame Builder (lay out a frame), Recursion
+  Elevator (type each floor's values), and Code Lawyer (find the line that
+  breaks a rule) could come back as an optional practice mode after the story.
+- **Register Heist:** values needed after a call sit in registers, and the
+  callee scrambles every `t` and `a` register. Choose what to save, with stars
+  for the fewest saves.
+- **Return tickets:** before every step, predict where the PC goes next: PC + 4,
+  a branch or `jal` target and the `ra` it writes, or a `jalr` destination.
+- **Call-tree scrubber:** `fib(4)` as a tree. Scrub through time, and the stack
+  is always the path from the root to the current call, so its depth isn't the
+  number of calls.
+- **Debugger room:** step into, step over, step out, and watch a stack word to
+  find the line where a value goes wrong within a step budget.
+- **Too many arguments:** a function with ten arguments: the first eight travel
+  in `a0`-`a7`, and the rest go on the stack at the right offsets.
+- **Base-case picker:** choose the base case; a wrong one recurses until the
+  stack runs into the heap.
+- **Smashed stack:** a loop writes one word past a local array and overwrites
+  the saved `ra`. Find the off-by-one.
+- **Backtrace detective:** rebuild the call chain from a stack dump after a
+  crash, using the saved `ra` values (and frame pointers, which Level 3 leaves
+  out).
+- **Other finales:** an audit boss of twenty calls in a row, climbing out from
+  five calls deep with every epilogue on the way, or a relay through `main`,
+  `a`, `b`, and `c` with the answer assembled on the way back up.
 
 ### Level 4 — Decoder Vault (weeks 6–7)
 Machine-code encoding, R/I/S/B/U/J formats, wide immediates, assembling, linking, loading.
@@ -211,7 +288,9 @@ the player repairs each layer before time runs out.
 - Levels 1–4, 7, and the boss can share one RISC-V interpreter. Level 1 has
   added it as `server/puzzles.py`, mirrored in `levels/level_1/puzzle_room.gd`
   so the game can animate each press. The instruction-key format fits Levels 2–4
-  too, e.g., keys that are `lw`/`sw` with different offsets.
+  too, e.g., keys that are `lw`/`sw` with different offsets. Level 3 builds a
+  calling machine on it in `server/call_stack.py` (mirrored in
+  `levels/level_3/call_machine.gd`, which also records a trace for the tower).
 - Levels 5–6 need a gate-level circuit simulator with clocking.
 - New puzzle kinds are added as `puzzle` question payloads with a new `kind`, so
   content stays authored in the database. A new room gives the runner its lines

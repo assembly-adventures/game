@@ -31,8 +31,8 @@ The schema exists to make three things possible:
 
 ## Current implementation
 
-The API and game implement levels 1 and 2, each with 10 puzzle gates, saved
-attempts, resume, and badges. Other levels are inactive. CSXL verifies Onyen and
+The API and game implement levels 1 to 3, each with 10 puzzle gates a run,
+saved attempts, resume, and badges. Other levels are inactive. CSXL verifies Onyen and
 PID at login; no proxy identity headers are trusted. PID stays server-side.
 See [gameplay-api.md](gameplay-api.md) for the implemented request contract.
 
@@ -108,7 +108,7 @@ query — nothing already built has to change.
 | `draw` | `jsonb`, optional — how a run picks its questions from the level's pools |
 | `is_active` | `false` for levels that are still stubs |
 
-`scene_path` is stored as metadata. The current client routes Levels 1 and 2
+`scene_path` is stored as metadata. The current client routes Levels 1 to 3
 explicitly in `control_center.gd`; it does not dynamically load scenes from this
 column.
 
@@ -127,6 +127,10 @@ branches, and one loops room, both procedure rooms, and the race:
 [{"pool": "tutorial"}, {"pool": "memory", "take": 1}, {"pool": "branches", "take": 1},
  {"pool": "loops", "take": 1}, {"pool": "procedures"}, {"pool": "finale"}]
 ```
+
+Level 3 has no draw rule: its eight walkthroughs play in order. Level 1's rule
+plays 10 of its 22 gates: the four tutorial gates, then one from each topic pool
+(`hex`, `masks`, `flips`, `signed`, `overflow`, `shifts`).
 
 ### `aa.badges`
 
@@ -152,6 +156,10 @@ one.
 `code_snippet` exists because the source bank jams multi-line assembly into the
 prompt with `\n`. Splitting it lets the UI monospace the code and leave the
 prose alone.
+
+A prompt's first line is the gate's goal, shown large; anything after the first
+`\n` is detail, shown smaller beneath it. Every level's prompts use both (the
+goal, then the one idea the gate turns on); a prompt with no `\n` is all goal.
 
 **Every payload element carries a stable id.** This is the most important
 change from `questions.json`, which grades by comparing *option text*. Text
@@ -202,6 +210,16 @@ pick" unanswerable.
  "names": {"a0": "x", "a1": "y"},
  "tests": [{"registers": {"a0": 3, "a1": 4}, "expect": {"registers": {"a1": 7}}},
            {"registers": {"a0": 7, "a1": 4}, "expect": {"registers": {"a1": 8}}}]}
+
+// puzzle, Level 3 — a walkthrough: a program that stops at its moments for the student's move
+{"kind": "walk", "entry": "plus2",
+ "code": [{"label": "plus2"},
+          {"moment": "frame", "ask": "… Before the calls, push:",
+           "options": [{"label": "ra onto the stack", "frame": ["ra"], "good": true, "why": "…"},
+                       {"label": "nothing", "frame": [], "good": false, "why": "…"}]},
+          {"line": "jal ra, inc", "note": "First call: ra now points back into plus2."},
+          {"line": "jal ra, inc"}, {"epilogue": true}, {"line": "jr ra"}, …],
+ "calls": [{"args": {"a0": 5}, "expect": 7}], "watch": ["a0", "ra", "sp"], "intro": "…"}
 ```
 
 Registers go by their ABI names (`a0`, `t1`, `sp`, `ra`; `x0` stays `x0`, as the
@@ -260,15 +278,62 @@ boundary, or more than 500 executed instructions fails the test. `names` only
 label the screen. `server/test_puzzles.py` checks that exactly one filling of
 each room's blanks passes.
 
+Level 3's rooms (graded by `server/call_stack.py`) share one machine:
+instructions from `0x100`, 4 bytes apart, and a stack of `stack_words` words (32
+unless the room sets it) below `0x7FF0`, which hold junk (`0xDEADBEEF`) until
+something is saved there. The Chip Chomper is the caller. Before each of the
+room's `calls` it sets `sp` to `0x7FF0`, `ra` to `0x400`, and `args` in
+`a0`-`a7`, fills every other register with junk (different for each register and
+call), and jumps to `entry`; the call ends when the code returns to `0x400`. A
+call keeps the contract when it returns `expect` in `a0` with `s0`-`s11` and
+`sp` as the Chomper set them, without crashing: a jump to where there is no
+code, a load or store off the stack or off a word boundary, a word the heap has
+eaten, or more than 3,000 executed instructions.
+
+Walkthroughs (`kind: "walk"`) are programs the student follows line by line.
+`code` holds lines (each may carry a `note`, shown in its caption the first time
+it runs), labels, an epilogue mark, and moments: places where the walk stops for
+the student's move. A moment lists `options`, each a block of `lines` written in
+where the moment stands (`"lines"`), or a `frame` whose prologue is written
+there and whose epilogue goes at the epilogue mark (`"frame"`). The answer is
+the option picked at each moment, in code order; it passes when the program then
+keeps the contract on every one of `calls`. Each option's `good` and `why`, the
+room's `watch` (the registers shown) and `intro`, and the notes only drive the
+screen: the game plays a wrong move out and rewinds it, so it only ever sends a
+working set of moves. In the finale, `chomper` eats a stack word every `every`
+instructions from instruction `start`, from the bottom of the stack
+(`stack_words` words) up; every frame that works still finishes first, and an
+option marked `loose` (good, but bigger than it needs to be) costs a star.
+
+Runs started before `0012` keep snapshots of three earlier kinds, which are
+still graded: Frame Builder (`frame`: the answer lists `blocks` from `sp+0` up,
+at most `max_slots`, written as a prologue and epilogue at the code's `prologue`
+and `epilogue` marks; `par` is the smallest working frame), Recursion Elevator
+(`elevator`: one whole number per `[floor, field]` of `blanks` on the chain of
+calls to `function`), and Code Lawyer (`lawyer`: one of `verdict.lines` and
+`verdict.clause`; snapshots leave `verdict` out). `server/test_call_stack.py`
+checks every walkthrough: its good moves keep the contract, every wrong move
+breaks it, its moments stand at their own lines, and the finale lets every
+working frame win.
+
 Level 1 is made entirely of puzzle gates (`0005_level1_puzzles.sql`); its
 original 13 quiz questions are retired. Level 2, the Memory Maze
 (`0007_level2_memory_maze.sql`), replaced the placeholder "Opcode" level.
 `0008_abi_register_names.sql` rewrites the x-names in Level 1's prompts, hints,
-and explanations to ABI names (`t0`, `t1`). Guest mode plays from copies in
-`levels/level_1/guest_rooms.json` and `levels/level_2/guest_rooms.json` (Level
-2's holds its whole bank and draw rule, and guest mode draws the same way),
-which a gameplay test keeps in sync. Level
-ideas are collected in [level-brainstorm.md](level-brainstorm.md).
+and explanations to ABI names (`t0`, `t1`). Level 3, the Call Stack Tower
+(`0009_level3_call_stack_tower.sql`), replaced the placeholder "Pipelining"
+level and adds the `frame`, `elevator`, and `lawyer` kinds.
+`0010_level1_question_bank.sql` turns Level 1 into a bank of 22 gates with a
+draw rule: gates 1-10 keep their ids and get pools, 11-22 are new, and every
+prompt leads with its goal. `0011_level2_gate_goals.sql` rewrites Level 2's
+prompts the same way, and `0012_level3_walkthroughs.sql` turns Level 3 into
+eight walkthroughs played in order (it adds the `walk` kind, drops the draw
+rule, and retires 0009's rooms). Guest mode plays from copies in
+`levels/level_<n>/guest_rooms.json` (each holds its level's whole bank and draw
+rule, and guest mode draws the same way), which a gameplay test keeps in sync.
+`server/test_puzzles.py` checks that every Level 1 gate opens within its move
+limit with `par` as the true minimum, and that each pool offers three gates.
+Level ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 
 Drag-and-drop tiles are **stored in a scrambled order** so the seed file does
 not read as the solution top to bottom. The API must still shuffle per run —
@@ -320,6 +385,7 @@ run (`attempt_no`). `response` mirrors the payload vocabulary, in ids:
 {"moves": [1, 0, 0]}                                  // puzzle, Level 1: buttons pressed, in order
 {"program": ["loop:", "addi a0, a0, 4", "bne a0, a1, loop"]}  // puzzle, Level 2 maze room: the program, one line per action
 {"blanks": ["beq t0, x0, else", "j done"]}           // puzzle, Level 2 code room: the line picked for each blank
+{"choices": [0]}                                      // puzzle, Level 3 walkthrough: the option picked at each moment
 ```
 
 `player_id` is redundant with `run_id → level_runs.player_id`. It is kept so

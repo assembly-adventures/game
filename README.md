@@ -3,12 +3,14 @@
 A Godot game for learning computer architecture, hosted on UNC CloudApps with
 CSXL Onyen login and PostgreSQL-backed progress.
 
-The current release includes two levels of ten puzzle gates each. Registers go
-by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
+The current release includes three levels of ten puzzle gates each. Registers
+go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
 
 - **Level 1 (registers):** binary and hex, signed values, overflow, logical
   operations, and shifts. Players press RISC-V instruction keys (`addi`, `slli`,
-  `xori`, …) to make an 8-bit register match a target pattern of bulbs.
+  `xori`, …) to make an 8-bit register match a target pattern of bulbs. Each run
+  draws ten gates from a bank of twenty-two: the four tutorial gates, then one
+  gate on each topic (hex, masks, flips, signed values, overflow, and shifts).
 - **Level 2, Memory Maze:** addresses, row-major layout, `lw`/`sw` with offsets,
   arrays, branches, loops, and procedure calls, following Lecture 4. Each run
   draws ten rooms from a bank of sixteen: four tutorial rooms, then one memory,
@@ -20,6 +22,24 @@ by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   lines: players pick a line for each blank and run the room's tests while the
   robot walks the code as the PC, and the registers, data, and stack change
   beside it.
+- **Level 3, Call Stack Tower:** procedures, `jal` and `jalr`, the calling
+  convention, stack frames, and recursion, following Lectures 6 and 7, as a
+  story of eight walkthroughs students follow along. Each room is a short
+  program played line by line: the code lights the line that ran, the stack
+  hangs below as a tower of frames with the robot riding `sp`, the registers sit
+  above the code, and a caption says what each line did, with its values. Play
+  runs it at reading pace (each line stays up long enough to read its caption);
+  Step and Back move a line at a time. When the walk reaches a move, the student
+  makes it: the call (`jal` or `j`), what a frame saves, where to keep a value
+  across a call, the base case. A wrong move plays out, shows what breaks, and
+  rewinds, costing a star but never a strike. The rooms go in order: a call, the
+  way back, keeping a value, borrowed `s` registers, recursion down and up, the
+  base case, two calls, and a race against the Chip Chomper climbing up from the
+  heap.
+
+Every gate starts with its goal in one line and the idea it turns on underneath,
+and numbers its steps beside the controls they use; a hint, once asked for,
+appears without moving anything.
 
 On every gate, **Instruction guide** in the top bar (or the I key) spells out
 each instruction's abbreviation, how it's written, and what it does, plus the
@@ -50,11 +70,11 @@ Import `project.godot` in Godot and wait for asset imports to finish.
 `F5` starts the project at `start_page.tscn`; `F6` previews the current scene.
 Desktop scene previews do not have a UNC browser session, so saved gameplay
 requires the web build and authenticated API. When progress cannot load, the
-Control Center offers **Play as guest**: Levels 1 and 2 run from
-`levels/level_1/guest_rooms.json` and `levels/level_2/guest_rooms.json`, are graded
-in the client, and reset on reload. Level 2's file holds its whole room bank and
-draw rule, and guest runs draw the same way. Keep those files in sync with the
-rows in the database (a gameplay test checks them).
+Control Center offers **Play as guest**: Levels 1 to 3 run from
+`levels/level_<n>/guest_rooms.json`, are graded in the client, and reset on
+reload. Each file holds its level's whole room bank and draw rule, and guest
+runs draw the same way. Keep those files in sync with the rows in the database
+(a gameplay test checks them).
 
 Follow the [developer guide](Docs/development.md) for a runnable local database
 setup, tests, environment variables, code map, and contribution workflow.

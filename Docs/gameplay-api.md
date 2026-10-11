@@ -12,7 +12,7 @@ the game asks the player to reload and sign in again.
 | --- | --- |
 | `GET /api/me` | Onyen, active earned badges, badge total, and progress ratio |
 | `GET /api/levels` | Availability, question counts, and completion flags |
-| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 or 2) |
+| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 to 3) |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
 
@@ -21,7 +21,7 @@ Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
-A level with a draw rule (Level 2) draws its questions from a bank when a run
+A level with a draw rule (Levels 1 to 3) draws its questions from a bank when a run
 starts. The run keeps that draw, in order, until it finishes, so resuming shows
 the same rooms; the next run draws again.
 
@@ -76,6 +76,23 @@ tests, and it is correct only if every test passes. A program that crashes (a
 jump to where there is no code, a load or store outside the room's memory or
 off a word boundary, or a loop that never ends) fails that test. Each run the
 player starts is one attempt, so a wrong run is a strike.
+
+Level 3's walkthroughs (graded in `server/call_stack.py`) send the option picked
+at each of the room's moments, in code order:
+
+```json
+{"choices": [0]}
+```
+
+The server writes the picked moves into the program and runs every one of the
+Chip Chomper's calls, which must return the expected value with `s0`-`s11` and
+`sp` as the Chomper set them. A wrong set of moves is a miss like any other, but
+the game never sends one: it plays a wrong move out on screen and rewinds it, so
+students see what breaks without a strike. Anything that isn't one valid option
+per moment returns 422. Runs started before the walkthroughs keep their earlier
+rooms, which still take a frame (`{"frame": ["s0", "ra"]}`), typed values
+(`{"values": [9, 4, 1]}`), or a line and a rule
+(`{"line": 256, "clause": "callee-save"}`).
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when

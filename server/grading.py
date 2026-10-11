@@ -41,8 +41,9 @@ def snapshot(question: dict) -> tuple[dict, dict]:
         public["payload"] = {"rows": rows, "choices": choices, "columns": payload["columns"]}
         solution = {"pairs": answers}
     elif kind == "puzzle":
-        # Goals are shown to the player; the server grades by replaying the presses.
-        public["payload"] = payload
+        # Goals are shown to the player; the server grades by replaying what they did. A Code
+        # Lawyer room's verdict is the one secret, kept for grading.
+        public["payload"] = {key: value for key, value in payload.items() if key != "verdict"}
         solution = {"puzzle": payload}
     else:
         raise HTTPException(503, "This question type is not supported.")
