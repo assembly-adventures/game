@@ -13,7 +13,14 @@ context_dir="$(mktemp -d)"
 trap 'rm -rf "$context_dir"' EXIT
 mkdir -p "$context_dir/infra" "$context_dir/build/web" "$context_dir/server"
 cp infra/Dockerfile "$context_dir/infra/"
-cp server/app.py server/api.py server/database.py server/grading.py server/gameplay.py server/requirements.txt "$context_dir/server/"
+# Every server module (grading imports puzzles.py and call_stack.py), but not the tests.
+cp server/requirements.txt "$context_dir/server/"
+for module in server/*.py; do
+  case "$module" in
+    server/test_*) ;;
+    *) cp "$module" "$context_dir/server/" ;;
+  esac
+done
 mkdir -p "$context_dir/db/migrations" "$context_dir/db/seed"
 cp db/migrations/*.sql "$context_dir/db/migrations/"
 cp db/seed/*.sql "$context_dir/db/seed/"
