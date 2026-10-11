@@ -5,7 +5,8 @@ extends Control
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_room.gd"),
-	"code": preload("res://levels/level_2/code_room.gd"), "frame": preload("res://levels/level_3/frame_room.gd"),
+	"code": preload("res://levels/level_2/code_room.gd"), "walk": preload("res://levels/level_3/walk_room.gd"),
+	"frame": preload("res://levels/level_3/frame_room.gd"),
 	"elevator": preload("res://levels/level_3/elevator_room.gd"), "lawyer": preload("res://levels/level_3/lawyer_room.gd")}
 const Corridor := preload("res://ui/corridor.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")

@@ -69,18 +69,26 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	main.add_theme_constant_override("separation", 14)
 	box.add_child(main)
+	# The board, with the hint under it once asked for: the board's cells shrink to make room.
+	var board_column := VBoxContainer.new()
+	board_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board_column.add_theme_constant_override("separation", 6)
+	main.add_child(board_column)
 	board = MazeVisuals.MazeBoard.new(room)
-	board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board.step = 1  # Its help line says how to act; the side panel's step 2 gives the budget.
+	board.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board.cell_clicked.connect(_on_cell_clicked)
 	board.cell_hovered.connect(_show_help)
-	main.add_child(board)
+	board_column.add_child(board)
 	var side := VBoxContainer.new()
 	side.custom_minimum_size = Vector2(472, 0)
-	side.add_theme_constant_override("separation", 8)
+	side.add_theme_constant_override("separation", 6)
 	main.add_child(side)
 	chips = MazeVisuals.RegisterChips.new()
 	_setup_chips()
 	side.add_child(chips)
+	side.add_child(Style.step(2, "Finish in %d instructions or fewer" % int(payload.max_moves),
+		"each action adds a line", true, true))
 	var middle := HBoxContainer.new()
 	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	middle.add_theme_constant_override("separation", 8)
@@ -104,12 +112,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	hint_button = _tool("Hint", show_hint, "")
 	for tool in [undo_button, restart_button, hint_button]:
 		tools.add_child(tool)
-	hint_label = Label.new()
-	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.add_theme_color_override("font_color", Style.GOLD)
-	hint_label.add_theme_font_size_override("font_size", 18)
-	hint_label.hide()
-	box.add_child(hint_label)
+	hint_label = Style.hint_box(board_column, false)
 	state = run(payload, [])
 	board.show_state(state)
 	chips.show_state(state)
@@ -167,7 +170,6 @@ func show_hint() -> void:
 	hint_used = true
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
-	hint_label.show()
 	hint_button.modulate = Color.WHITE
 	_sync()
 
@@ -175,7 +177,6 @@ func show_hint() -> void:
 func solved() -> void:
 	locked = true
 	board.celebrate()
-	hint_label.hide()
 	_sync()
 
 ## The server did not accept the program: shake, then start the room over.
@@ -328,10 +329,11 @@ func _address_text(cell: int) -> String:
 	return "%s0x%X = a0 %s %d" % ["" if label.is_empty() else label + " · ", base + 4 * cell,
 		"-" if offset < 0 else "+", absi(offset)]
 
-## The line above the board: how to play, or what a click on the hovered word would do.
+## The line above the board (step 1): how to play, or what a click on the hovered word would do.
 func _show_help(cell: int = -1) -> void:
-	var text := "Arrow keys or WASD step · " + ("click any word to load or store it" if not payload.hands.is_empty()
-		else "or click the next cell")
+	var text := "Tap loop:, show the robot one pass, then tap Repeat" if payload.get("loop", false) \
+		else "Arrow keys or WASD to step; click a word to load or store it" if not payload.hands.is_empty() \
+		else "Arrow keys or WASD to step, or click the next cell"
 	if cell >= 0 and not (locked or playing or disabled) and tiles[cell] != "#":
 		var options := _options_for(cell)
 		if options.size() == 1 and payload.hands.is_empty():
@@ -430,6 +432,8 @@ func _sync(refused: String = "") -> void:
 	undo_button.disabled = off or lines.is_empty()
 	restart_button.disabled = off or lines.is_empty()
 	hint_button.disabled = disabled or locked or hint_used or hint.is_empty()
+	# The hint steps aside while the robot moves, and once the gate opens.
+	hint_label.get_parent().visible = hint_used and not playing and not locked
 	var shown: Array = []
 	for line in lines + ([] if refused.is_empty() else [refused]):
 		shown.append({"text": line, "op": parse(line).op})
@@ -482,7 +486,7 @@ func _make_key(i: int) -> Button:
 	var line: String = action_lines[i]
 	var color: Color = MazeVisuals.kind_color(str(parse(line).op))
 	var key := Button.new()
-	key.custom_minimum_size = Vector2(206, 50)
+	key.custom_minimum_size = Vector2(206, 44)
 	key.focus_mode = Control.FOCUS_NONE
 	key.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	for look in ["normal", "hover", "pressed", "disabled"]:

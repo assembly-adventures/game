@@ -6,7 +6,16 @@ words below STACK_TOP that hold junk until something is saved there. The Chip Ch
 caller. Before each of its calls it fills every register with junk (different for each register
 and each call, so a value that wasn't kept shows), sets sp to the top of the stack and ra to
 CHOMPER, puts the call's arguments in a0-a7, and jumps to the room's entry; the call ends when
-the code returns to CHOMPER. Three kinds of room share the machine:
+the code returns to CHOMPER. The level's rooms are walkthroughs:
+
+- "walk": the player follows a short program line by line and makes its moves at its moments:
+  places in the code with a few options, each a block of lines ("lines") or a stack frame whose
+  prologue goes there and whose epilogue goes at the epilogue mark ("frame"). The answer is the
+  option picked at each moment; it passes when the program then keeps the contract on every one
+  of the Chomper's calls. Any working set of picks passes.
+
+Runs started before the walkthroughs keep their snapshots of three earlier kinds, still graded
+here:
 
 - "frame" (Frame Builder): the player lays out the function's stack frame, a list of registers
   from sp+0 up. Its prologue and epilogue are written from that layout, and every one of the
@@ -64,11 +73,28 @@ def frame_lines(frame: list[str]) -> tuple[list[str], list[str]]:
     return prologue, epilogue
 
 
-def assemble(payload: dict, frame: list[str] | tuple = ()) -> tuple[list[str], dict]:
+def moments(payload: dict) -> list[dict]:
+    """A walkthrough's moments, in the order they appear in its code."""
+    return [entry for entry in payload["code"] if "moment" in entry]
+
+
+def picked(payload: dict, choices) -> list[dict | None]:
+    """The option picked at each moment, or None where nothing is picked yet."""
+    choices = list(choices or [])
+    return [entry["options"][choices[k]] if k < len(choices) and choices[k] is not None and choices[k] >= 0 else None
+            for k, entry in enumerate(moments(payload))]
+
+
+def assemble(payload: dict, frame: list[str] | tuple = (), choices=None) -> tuple[list[str], dict]:
     """The room's program, its lines from CODE_BASE 4 bytes apart, with a frame room's prologue
-    and epilogue written in, and the address of each label."""
+    and epilogue (or a walkthrough's picked moves) written in, and the address of each label."""
+    options = picked(payload, choices)
+    for entry, option in zip(moments(payload), options):
+        if entry["moment"] == "frame" and option is not None:
+            frame = option["frame"]
     prologue, epilogue = frame_lines(list(frame))
     lines, labels = [], {}
+    moment = 0
     for entry in payload["code"]:
         if "label" in entry:
             labels[entry["label"]] = CODE_BASE + 4 * len(lines)
@@ -78,6 +104,11 @@ def assemble(payload: dict, frame: list[str] | tuple = ()) -> tuple[list[str], d
             lines += prologue
         elif entry.get("epilogue"):
             lines += epilogue
+        elif "moment" in entry:
+            option = options[moment]
+            moment += 1
+            if option is not None:
+                lines += prologue if entry["moment"] == "frame" else option["lines"]
     return lines, labels
 
 
@@ -173,11 +204,11 @@ def run(payload: dict, lines: list[str], labels: dict, index: int) -> dict:
     return {"regs": regs, "memory": memory, "pc": pc, "fault": fault, "steps": steps, "calls": calls}
 
 
-def audit(payload: dict, frame: list[str] | tuple = ()) -> list[dict]:
+def audit(payload: dict, frame: list[str] | tuple = (), choices=None) -> list[dict]:
     """Every one of the Chomper's calls, checked against the contract: it must return (no crash),
     with the expected value in a0 if the call names one, and with s0-s11 and sp as the Chomper
     set them. Each row lists what went wrong ("value", a register's name, "sp", or a fault kind)."""
-    lines, labels = assemble(payload, frame)
+    lines, labels = assemble(payload, frame, choices)
     rows = []
     for index, call in enumerate(payload["calls"]):
         before, _ = setup(payload, index)
@@ -228,5 +259,16 @@ def grade_lawyer(payload: dict, response: dict) -> bool:
     return line in payload["verdict"]["lines"] and rule == payload["verdict"]["clause"]
 
 
+def grade_walk(payload: dict, response: dict) -> bool:
+    choices = response.get("choices")
+    entries = moments(payload)
+    if (set(response) != {"choices"} or not isinstance(choices, list) or len(choices) != len(entries)
+            or any(type(choice) is not int or not 0 <= choice < len(entry["options"])
+                   for choice, entry in zip(choices, entries))):
+        raise HTTPException(422, "Pick one of the options at each of this walkthrough's moments.")
+    return all(row["passed"] for row in audit(payload, choices=choices))
+
+
 def grade_call_stack(payload: dict, response: dict) -> bool:
-    return {"frame": grade_frame, "elevator": grade_elevator, "lawyer": grade_lawyer}[payload["kind"]](payload, response)
+    return {"walk": grade_walk, "frame": grade_frame, "elevator": grade_elevator,
+            "lawyer": grade_lawyer}[payload["kind"]](payload, response)

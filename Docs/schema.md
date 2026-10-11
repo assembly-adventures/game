@@ -128,9 +128,9 @@ branches, and one loops room, both procedure rooms, and the race:
  {"pool": "loops", "take": 1}, {"pool": "procedures"}, {"pool": "finale"}]
 ```
 
-Level 3's rule plays 10 of its 17 rooms: the three tutorial rooms (one of each
-kind), two Frame Builder, two Recursion Elevator, and two Code Lawyer rooms,
-and the finale.
+Level 3 has no draw rule: its eight walkthroughs play in order. Level 1's rule
+plays 10 of its 22 gates: the four tutorial gates, then one from each topic pool
+(`hex`, `masks`, `flips`, `signed`, `overflow`, `shifts`).
 
 ### `aa.badges`
 
@@ -158,8 +158,8 @@ prompt with `\n`. Splitting it lets the UI monospace the code and leave the
 prose alone.
 
 A prompt's first line is the gate's goal, shown large; anything after the first
-`\n` is detail, shown smaller beneath it. Level 3's prompts use both (the goal,
-then the one idea the room turns on); a prompt with no `\n` is all goal.
+`\n` is detail, shown smaller beneath it. Every level's prompts use both (the
+goal, then the one idea the gate turns on); a prompt with no `\n` is all goal.
 
 **Every payload element carries a stable id.** This is the most important
 change from `questions.json`, which grades by comparing *option text*. Text
@@ -211,23 +211,15 @@ pick" unanswerable.
  "tests": [{"registers": {"a0": 3, "a1": 4}, "expect": {"registers": {"a1": 7}}},
            {"registers": {"a0": 7, "a1": 4}, "expect": {"registers": {"a1": 8}}}]}
 
-// puzzle, Level 3 — Frame Builder: the player's layout writes the prologue and epilogue
-{"kind": "frame", "entry": "plus1",
- "code": [{"label": "plus1"}, {"prologue": true}, {"line": "jal ra, triple"},
-          {"line": "addi a0, a0, 1"}, {"epilogue": true}, {"line": "jr ra"}, …],
- "blocks": ["ra", "s0", "a0"], "max_slots": 3, "par": 1,
- "calls": [{"args": {"a0": 4}, "expect": 13}, {"args": {"a0": -2}, "expect": -5},
-           {"args": {"a0": 7}, "expect": 22}]}
-
-// puzzle, Level 3 — Recursion Elevator: blanks are [floor, field] on the chain of calls
-{"kind": "elevator", "entry": "sqr", "function": "sqr", "code": […],
- "calls": [{"args": {"a0": 3}, "expect": 9}], "params": ["a0"], "columns": ["ret"],
- "floors": 3, "blanks": [[0, "ret"], [1, "ret"], [2, "ret"]]}
-
-// puzzle, Level 3 — Code Lawyer: the verdict stays private (snapshots leave it out)
-{"kind": "lawyer", "entry": "double", "code": […], "calls": [{"args": {"a0": 5}, "expect": 10}],
- "clauses": ["caller-save", "callee-save", "save-ra", "restore-sp"],
- "verdict": {"lines": [256], "clause": "callee-save"}}
+// puzzle, Level 3 — a walkthrough: a program that stops at its moments for the student's move
+{"kind": "walk", "entry": "plus2",
+ "code": [{"label": "plus2"},
+          {"moment": "frame", "ask": "… Before the calls, push:",
+           "options": [{"label": "ra onto the stack", "frame": ["ra"], "good": true, "why": "…"},
+                       {"label": "nothing", "frame": [], "good": false, "why": "…"}]},
+          {"line": "jal ra, inc", "note": "First call: ra now points back into plus2."},
+          {"line": "jal ra, inc"}, {"epilogue": true}, {"line": "jr ra"}, …],
+ "calls": [{"args": {"a0": 5}, "expect": 7}], "watch": ["a0", "ra", "sp"], "intro": "…"}
 ```
 
 Registers go by their ABI names (`a0`, `t1`, `sp`, `ra`; `x0` stays `x0`, as the
@@ -286,45 +278,43 @@ boundary, or more than 500 executed instructions fails the test. `names` only
 label the screen. `server/test_puzzles.py` checks that exactly one filling of
 each room's blanks passes.
 
-Level 3's rooms (`frame`, `elevator`, and `lawyer`, graded by
-`server/call_stack.py`) share one machine: instructions from `0x100`, 4 bytes
-apart, and a stack of `stack_words` words (32 unless the room sets it) below
-`0x7FF0`, which hold junk (`0xDEADBEEF`) until something is saved there. The
-Chip Chomper is the caller. Before each of the room's `calls` it sets `sp` to
-`0x7FF0`, `ra` to `0x400`, and `args` in `a0`-`a7`, fills every other register
-with junk (different for each register and call), and jumps to `entry`; the call
-ends when the code returns to `0x400`. A call keeps the contract when it returns
-`expect` in `a0` with `s0`-`s11` and `sp` as the Chomper set them, without
-crashing: a jump to where there is no code, a load or store off the stack or off
-a word boundary, a word the heap has eaten, or more than 3,000 executed
-instructions.
+Level 3's rooms (graded by `server/call_stack.py`) share one machine:
+instructions from `0x100`, 4 bytes apart, and a stack of `stack_words` words (32
+unless the room sets it) below `0x7FF0`, which hold junk (`0xDEADBEEF`) until
+something is saved there. The Chip Chomper is the caller. Before each of the
+room's `calls` it sets `sp` to `0x7FF0`, `ra` to `0x400`, and `args` in
+`a0`-`a7`, fills every other register with junk (different for each register and
+call), and jumps to `entry`; the call ends when the code returns to `0x400`. A
+call keeps the contract when it returns `expect` in `a0` with `s0`-`s11` and
+`sp` as the Chomper set them, without crashing: a jump to where there is no
+code, a load or store off the stack or off a word boundary, a word the heap has
+eaten, or more than 3,000 executed instructions.
 
-Frame Builder rooms (`kind: "frame"`) mark where the frame's code goes with
-`prologue` and `epilogue` entries in `code`. The answer lists `blocks` from
-`sp+0` up, each at most once and at most `max_slots` of them. The prologue
-becomes `addi sp, sp, -4n` and an `sw` for each block (top word first); the
-epilogue becomes an `lw` for each `ra` or `s` block (from `sp+0` up) and
-`addi sp, sp, 4n`; an empty frame writes neither. The room is solved when every
-call keeps the contract, and `par` is the size of the smallest frame that does.
-In the finale, `chomper` eats a stack word every `every` instructions from
-instruction `start`, from the bottom of the stack up, so only a tight frame lets
-the deepest call finish.
+Walkthroughs (`kind: "walk"`) are programs the student follows line by line.
+`code` holds lines (each may carry a `note`, shown in its caption the first time
+it runs), labels, an epilogue mark, and moments: places where the walk stops for
+the student's move. A moment lists `options`, each a block of `lines` written in
+where the moment stands (`"lines"`), or a `frame` whose prologue is written
+there and whose epilogue goes at the epilogue mark (`"frame"`). The answer is
+the option picked at each moment, in code order; it passes when the program then
+keeps the contract on every one of `calls`. Each option's `good` and `why`, the
+room's `watch` (the registers shown) and `intro`, and the notes only drive the
+screen: the game plays a wrong move out and rewinds it, so it only ever sends a
+working set of moves. In the finale, `chomper` eats a stack word every `every`
+instructions from instruction `start`, from the bottom of the stack
+(`stack_words` words) up; every frame that works still finishes first, and an
+option marked `loose` (good, but bigger than it needs to be) costs a star.
 
-Recursion Elevator rooms (`kind: "elevator"`) run their one call and ask about
-the chain of calls to `function` in it, outermost first. Each of `blanks` is a
-`[floor, field]` pair, where `field` is `a0`, `a1`, or `s0` as that call began,
-`ra` (the address it returns to), or `ret` (what it returned); answers are
-compared as 32-bit words. `floors`, `params`, and `columns` only lay out the
-screen.
-
-Code Lawyer rooms (`kind: "lawyer"`) hold a program that breaks the calling
-convention. A room is solved when the answer names one of `verdict.lines`
-(instruction addresses) and `verdict.clause`, one of the room's `clauses`
-(`caller-save`, `callee-save`, `save-ra`, `restore-sp`). Public snapshots leave
-`verdict` out. `server/test_call_stack.py` checks every room: `par` is the
-smallest working frame, elevator answers match the C, each lawyer program keeps
-the contract once the named line is repaired, and the finale needs a tight
-frame.
+Runs started before `0012` keep snapshots of three earlier kinds, which are
+still graded: Frame Builder (`frame`: the answer lists `blocks` from `sp+0` up,
+at most `max_slots`, written as a prologue and epilogue at the code's `prologue`
+and `epilogue` marks; `par` is the smallest working frame), Recursion Elevator
+(`elevator`: one whole number per `[floor, field]` of `blanks` on the chain of
+calls to `function`), and Code Lawyer (`lawyer`: one of `verdict.lines` and
+`verdict.clause`; snapshots leave `verdict` out). `server/test_call_stack.py`
+checks every walkthrough: its good moves keep the contract, every wrong move
+breaks it, its moments stand at their own lines, and the finale lets every
+working frame win.
 
 Level 1 is made entirely of puzzle gates (`0005_level1_puzzles.sql`); its
 original 13 quiz questions are retired. Level 2, the Memory Maze
@@ -332,11 +322,18 @@ original 13 quiz questions are retired. Level 2, the Memory Maze
 `0008_abi_register_names.sql` rewrites the x-names in Level 1's prompts, hints,
 and explanations to ABI names (`t0`, `t1`). Level 3, the Call Stack Tower
 (`0009_level3_call_stack_tower.sql`), replaced the placeholder "Pipelining"
-level and adds the `frame`, `elevator`, and `lawyer` kinds. Guest mode plays
-from copies in `levels/level_<n>/guest_rooms.json` (Levels 2 and 3 hold their
-whole bank and draw rule, and guest mode draws the same way), which a gameplay
-test keeps in sync. Level ideas are collected in
-[level-brainstorm.md](level-brainstorm.md).
+level and adds the `frame`, `elevator`, and `lawyer` kinds.
+`0010_level1_question_bank.sql` turns Level 1 into a bank of 22 gates with a
+draw rule: gates 1-10 keep their ids and get pools, 11-22 are new, and every
+prompt leads with its goal. `0011_level2_gate_goals.sql` rewrites Level 2's
+prompts the same way, and `0012_level3_walkthroughs.sql` turns Level 3 into
+eight walkthroughs played in order (it adds the `walk` kind, drops the draw
+rule, and retires 0009's rooms). Guest mode plays from copies in
+`levels/level_<n>/guest_rooms.json` (each holds its level's whole bank and draw
+rule, and guest mode draws the same way), which a gameplay test keeps in sync.
+`server/test_puzzles.py` checks that every Level 1 gate opens within its move
+limit with `par` as the true minimum, and that each pool offers three gates.
+Level ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 
 Drag-and-drop tiles are **stored in a scrambled order** so the seed file does
 not read as the solution top to bottom. The API must still shuffle per run —
@@ -388,9 +385,7 @@ run (`attempt_no`). `response` mirrors the payload vocabulary, in ids:
 {"moves": [1, 0, 0]}                                  // puzzle, Level 1: buttons pressed, in order
 {"program": ["loop:", "addi a0, a0, 4", "bne a0, a1, loop"]}  // puzzle, Level 2 maze room: the program, one line per action
 {"blanks": ["beq t0, x0, else", "j done"]}           // puzzle, Level 2 code room: the line picked for each blank
-{"frame": ["s0", "ra"]}                               // puzzle, Level 3 Frame Builder: the frame from sp+0 up
-{"values": [9, 4, 1]}                                 // puzzle, Level 3 Recursion Elevator: one number per blank
-{"line": 256, "clause": "callee-save"}                // puzzle, Level 3 Code Lawyer: a line's address and a rule
+{"choices": [0]}                                      // puzzle, Level 3 walkthrough: the option picked at each moment
 ```
 
 `player_id` is redundant with `run_id → level_runs.player_id`. It is kept so

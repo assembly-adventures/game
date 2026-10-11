@@ -67,29 +67,8 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	_build_controls()
 	# The hint, once asked for, sits in a box over the bottom of the tower, so showing it never moves
 	# the controls. It steps aside while a call plays.
-	hint_box = PanelContainer.new()
-	var box_style := StyleBoxFlat.new()
-	box_style.bg_color = Color(Style.BG, 0.94)
-	box_style.border_color = Color(Style.GOLD, 0.7)
-	box_style.set_border_width_all(1)
-	box_style.set_corner_radius_all(8)
-	box_style.set_content_margin_all(8)
-	hint_box.add_theme_stylebox_override("panel", box_style)
-	hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint_box.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	hint_box.offset_left = 8
-	hint_box.offset_right = -4
-	hint_box.offset_top = -4
-	hint_box.offset_bottom = -4
-	hint_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	hint_box.hide()
-	tower.add_child(hint_box)
-	hint_label = Label.new()
-	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.add_theme_color_override("font_color", Style.GOLD)
-	hint_label.add_theme_font_size_override("font_size", 14)
-	hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint_box.add_child(hint_label)
+	hint_label = Style.hint_box(tower)
+	hint_box = hint_label.get_parent() as PanelContainer
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_child(spacer)
@@ -381,43 +360,9 @@ func _tool(text: String, action: Callable, shortcut: String) -> Button:
 	tool.pressed.connect(action)
 	return tool
 
-## A numbered step in the side panel: what to do, with an optional note on how underneath. The
-## note's label is the row's "note" meta, so a room can change it.
+## A numbered step in the side panel (the shared look every level's steps use).
 func _step(number: int, text: String, note: String = "") -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	var badge := Label.new()
-	badge.text = str(number)
-	badge.custom_minimum_size = Vector2(19, 19)
-	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	badge.add_theme_font_size_override("font_size", 12)
-	badge.add_theme_color_override("font_color", Style.BG)
-	var disc := StyleBoxFlat.new()
-	disc.bg_color = Style.GOLD
-	disc.set_corner_radius_all(10)
-	badge.add_theme_stylebox_override("normal", disc)
-	row.add_child(badge)
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.add_theme_constant_override("separation", 0)
-	row.add_child(words)
-	var label := Label.new()
-	label.text = text
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(Style.TEXT, 0.92))
-	words.add_child(label)
-	var small := Label.new()
-	small.text = note
-	small.visible = not note.is_empty()
-	small.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	small.add_theme_font_size_override("font_size", 12)
-	small.add_theme_color_override("font_color", Color(Style.TEXT, 0.55))
-	words.add_child(small)
-	row.set_meta("note", small)
-	return row
+	return Style.step(number, text, note)
 
 ## Tighter padding than the theme gives buttons, for a column of choices in the side panel.
 func _compact(button: Button) -> void:

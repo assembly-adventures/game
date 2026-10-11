@@ -21,7 +21,7 @@ Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
-A level with a draw rule (Level 2) draws its questions from a bank when a run
+A level with a draw rule (Levels 1 to 3) draws its questions from a bank when a run
 starts. The run keeps that draw, in order, until it finishes, so resuming shows
 the same rooms; the next run draws again.
 
@@ -77,23 +77,22 @@ jump to where there is no code, a load or store outside the room's memory or
 off a word boundary, or a loop that never ends) fails that test. Each run the
 player starts is one attempt, so a wrong run is a strike.
 
-Level 3's rooms (graded in `server/call_stack.py`) send one of these:
+Level 3's walkthroughs (graded in `server/call_stack.py`) send the option picked
+at each of the room's moments, in code order:
 
 ```json
-{"frame": ["s0", "ra"]}
-{"values": [9, 4, 1]}
-{"line": 256, "clause": "callee-save"}
+{"choices": [0]}
 ```
 
-A Frame Builder room sends its frame, from `sp+0` up: only the room's `blocks`,
-each at most once and at most `max_slots` of them. The server writes the frame's
-prologue and epilogue into the program and runs every one of the Chip Chomper's
-calls, which must return the expected value with `s0`-`s11` and `sp` as the
-Chomper set them. A Recursion Elevator room sends one whole number per blank, in
-the payload's order (the game parses hex itself). A Code Lawyer room sends the
-address of one of the program's instructions and one of its `clauses`; it is
-correct when both match the room's verdict, which run snapshots never include.
-Anything else returns 422. Each Run, ride, or objection is one attempt.
+The server writes the picked moves into the program and runs every one of the
+Chip Chomper's calls, which must return the expected value with `s0`-`s11` and
+`sp` as the Chomper set them. A wrong set of moves is a miss like any other, but
+the game never sends one: it plays a wrong move out on screen and rewinds it, so
+students see what breaks without a strike. Anything that isn't one valid option
+per moment returns 422. Runs started before the walkthroughs keep their earlier
+rooms, which still take a frame (`{"frame": ["s0", "ra"]}`), typed values
+(`{"values": [9, 4, 1]}`), or a line and a rule
+(`{"line": 256, "clause": "callee-save"}`).
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when

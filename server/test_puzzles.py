@@ -13,7 +13,15 @@ from server.puzzles import (BRANCHES, EXIT, JUNK, Fault, branch_taken, code_blan
                             maze_solved, parse_line, reg, run_code, run_maze, run_program)
 
 ROOT = Path(__file__).parents[1]
-GATES = json.loads((ROOT / "levels/level_1/guest_rooms.json").read_text())
+LEVEL1 = json.loads((ROOT / "levels/level_1/guest_rooms.json").read_text())
+GATES = LEVEL1["rooms"]
+# One winning answer per Level 1 gate, by ordinal (db/migrations/0005_level1_puzzles.sql, and 0010 for
+# gates 11-22): the keys pressed, in order.
+GATE_SOLUTIONS = {
+    1: [0], 2: [0, 0, 0], 3: [1, 0], 4: [0, 1, 0], 5: [2, 0], 6: [0, 1], 7: [0, 1], 8: [0, 1], 9: [0, 0, 1],
+    10: [1, 1, 1], 11: [0, 0, 1], 12: [0, 1, 2], 13: [0, 1], 14: [0, 1], 15: [0, 1], 16: [0, 1], 17: [0, 1],
+    18: [0, 1], 19: [0, 0], 20: [0, 0], 21: [1, 1], 22: [0, 0],
+}
 BANK = json.loads((ROOT / "levels/level_2/guest_rooms.json").read_text())
 ROOMS = BANK["rooms"]
 ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
@@ -376,7 +384,7 @@ class GateDesignTests(unittest.TestCase):
     """Every gate must open within its move limit, and par must be the true minimum."""
 
     def test_every_gate_is_solvable_and_par_is_optimal(self):
-        self.assertEqual([gate["ordinal"] for gate in GATES], list(range(1, 11)))
+        self.assertEqual([gate["ordinal"] for gate in GATES], list(range(1, 23)))
         for gate in GATES:
             payload = gate["payload"]
             with self.subTest(gate=gate["ordinal"]):
@@ -385,7 +393,23 @@ class GateDesignTests(unittest.TestCase):
                                  if any(matches(gate, moves) for moves in product(range(len(payload["buttons"])), repeat=n))),
                                 None)
                 self.assertEqual(shortest, payload["par"])
-                self.assertTrue(gate["prompt"] and gate["hint"] and gate["explanation"])
+                solution = GATE_SOLUTIONS[gate["ordinal"]]
+                self.assertEqual(len(solution), payload["par"])
+                self.assertTrue(grade_puzzle(payload, {"moves": solution}))
+                goal, _, detail = gate["prompt"].partition("\n")
+                self.assertTrue(goal and detail and gate["hint"] and gate["explanation"])
+
+    def test_every_run_plays_the_tutorial_and_one_gate_of_each_topic(self):
+        pools = {}
+        for gate in GATES:
+            pools.setdefault(gate["pool"], []).append(gate["ordinal"])
+        self.assertEqual([slot["pool"] for slot in LEVEL1["draw"]],
+                         ["tutorial", "hex", "masks", "flips", "signed", "overflow", "shifts"])
+        self.assertEqual(pools["tutorial"], [1, 2, 3, 4])
+        for slot in LEVEL1["draw"][1:]:
+            with self.subTest(pool=slot["pool"]):
+                self.assertEqual(slot["take"], 1)
+                self.assertEqual(len(pools[slot["pool"]]), 3)
 
     def test_every_maze_room_is_solvable_and_par_is_optimal(self):
         for room in ROOMS:

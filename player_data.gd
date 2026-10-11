@@ -192,7 +192,7 @@ func _guest_attempt(level: int, index: int, response: Dictionary) -> Dictionary:
 			correct = MazeRoom.grade(payload, response)
 		"code":
 			correct = CodeRoom.grade(payload, response)
-		"frame", "elevator", "lawyer":
+		"walk", "frame", "elevator", "lawyer":
 			correct = CallMachine.grade(payload, response)
 		_:
 			correct = PuzzleRoom.grade(payload, response)

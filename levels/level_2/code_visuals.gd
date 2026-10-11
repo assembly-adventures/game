@@ -35,6 +35,8 @@ class CodeView extends Control:
 	var end := CODE_BASE  # Just past the last instruction: running off the end finishes the program.
 	var returns := false  # Whether a jalr can return to main's caller, so the OS gets a row.
 	var ends := true  # Whether the program can finish by running off its end, so the end gets a row.
+	var note := "one instruction every 4 bytes"  # Beside the CODE heading.
+	var step := 0  # When the code is where a numbered step happens, its number (drawn before the note).
 	var memory_rows: Array = []  # {"address", "label", "stack"}
 	var memory: Dictionary = {}
 	var stack_top := -1
@@ -217,8 +219,12 @@ class CodeView extends Control:
 		var font := get_theme_default_font()
 		var width := code_width()
 		draw_string(font, Vector2(LEFT, 14), "CODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
-		draw_string(font, Vector2(LEFT + 42, 14), "one instruction every 4 bytes", HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-			Color(TEXT, 0.3))
+		var note_x := LEFT + 42
+		if step > 0:
+			Style.draw_step_badge(self, Vector2(note_x + 9.5, 9), step)
+			note_x += 26
+		draw_string(font, Vector2(note_x, 14), note, HORIZONTAL_ALIGNMENT_LEFT, size.x - note_x - 4, 14 if step > 0 else 12,
+			Color(TEXT, 0.92) if step > 0 else Color(TEXT, 0.3))
 		Style.rounded(self, Rect2(Vector2(LEFT, TOP - 4), Vector2(width - LEFT, row_y(rows.size()) - TOP + 8)),
 			Color(0, 0, 0, 0.25).lerp(Color(GREEN, 0.12), win), 8, Color(TEXT, 0.1).lerp(GREEN, win), 1)
 		for i in range(rows.size()):

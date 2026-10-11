@@ -29,11 +29,13 @@ class ListingView extends Control:
 	const LEFT := 4.0
 	var row_height := 17.0  # Shrinks (down to 12) so a long program fits the space it has.
 	const TEXT_X := 64.0
-	const SLOTS := {"prologue": "(prologue: nothing saved yet)", "epilogue": "(epilogue: nothing restored yet)"}
+	const SLOTS := {"prologue": "(prologue: nothing saved yet)", "epilogue": "(epilogue: nothing restored yet)",
+		"moment": "(your move goes here)"}
 	var rows: Array = []  # {"kind": "label"/"line"/"slot", "text", "address", "part"}
 	var note := "one instruction every 4 bytes"  # Beside the CODE heading.
 	var step := 0  # When the listing is where a numbered step happens, its number (drawn before the note).
 	var running := -1
+	var waiting := false  # A walkthrough is waiting for the move its slot stands for: the slot glows.
 	var selectable := false
 	var selected := -1
 	var marks := {}  # Address → colour, for a verdict's lines.
@@ -121,9 +123,7 @@ class ListingView extends Control:
 		draw_string(font, Vector2(LEFT, 14), "CODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
 		var note_x := LEFT + 42
 		if step > 0:
-			# The same numbered badge as the side panel's steps.
-			draw_circle(Vector2(note_x + 9, 8), 9, GOLD)
-			draw_string(font, Vector2(note_x, 12.5), str(step), HORIZONTAL_ALIGNMENT_CENTER, 18, 12, BG)
+			Style.draw_step_badge(self, Vector2(note_x + 9.5, 9), step)
 			note_x += 26
 		draw_string(font, Vector2(note_x, 14), note, HORIZONTAL_ALIGNMENT_LEFT, size.x - note_x - 4, 14 if step > 0 else 12,
 			Color(TEXT, 0.92) if step > 0 else Color(TEXT, 0.3))
@@ -141,8 +141,12 @@ class ListingView extends Control:
 					Color(PURPLE, 0.95))
 				continue
 			if row.kind == "slot":
+				var glowing: bool = waiting and row.part == "moment"
+				if glowing:
+					Style.rounded(self, Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, _height(i) - 2)),
+						Color(GOLD, 0.16), 5, GOLD, 2)
 				draw_string(font, Vector2(TEXT_X, y + baseline * 0.85), row.text, HORIZONTAL_ALIGNMENT_LEFT,
-					size.x - TEXT_X - 8, address_size + 1, Color(CYAN, 0.6))
+					size.x - TEXT_X - 8, address_size + 1, GOLD if glowing else Color(CYAN, 0.6))
 				continue
 			var address := int(row.address)
 			var band := Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, row_height - 2))
@@ -263,15 +267,35 @@ class TowerView extends Control:
 				address -= 4
 		return rows
 
-	func _row_height(count: int) -> float:
-		return clampf((size.y - TOP - 6) / maxf(count, 1), 11.0, 22.0)
+	## A row's height in units: the stack words below the frames (free, or eaten by the heap) take
+	## half a unit, so a deep finale still fits with its frames readable.
+	func _weight(row: Dictionary) -> float:
+		return 0.5 if str(row.kind) in ["free", "heap"] else 1.0
+
+	## The height of one unit: every row fits the tower, but never too small to read or too big.
+	func _unit(rows: Array) -> float:
+		var total := 0.0
+		for row in rows:
+			total += _weight(row)
+		return clampf((size.y - TOP - 6) / maxf(total, 1.0), 11.0, 22.0)
+
+	## The top of each row, then the bottom of the last.
+	func _tops(rows: Array, unit: float) -> Array:
+		var tops: Array = []
+		var y := TOP
+		for row in rows:
+			tops.append(y)
+			y += unit * _weight(row)
+		tops.append(y)
+		return tops
 
 	## The y of the row the robot should stand on: sp's word, or the floor it belongs to.
 	func _sp_y() -> float:
 		if mode == "design":
 			return TOP + DESIGN_ROW * (2 + design.size()) - DESIGN_ROW / 2.0 if not design.is_empty() else TOP + DESIGN_ROW * 1.5
 		var rows := _live_rows()
-		var h := _row_height(rows.size())
+		var unit := _unit(rows)
+		var tops := _tops(rows, unit)
 		var target := -1
 		for i in range(rows.size()):
 			if rows[i].kind == "word" and int(rows[i].word.address) == sp:
@@ -281,7 +305,8 @@ class TowerView extends Control:
 			for i in range(rows.size()):
 				if rows[i].kind == "floor":
 					target = i
-		return TOP + h * maxi(target, 0) + h / 2.0
+		target = maxi(target, 0)
+		return float(tops[target]) + unit * _weight(rows[target]) / 2.0
 
 	func _place_robot(duration: float) -> void:
 		var y := _sp_y()
@@ -298,16 +323,17 @@ class TowerView extends Control:
 		for key in flashes.keys():
 			flashes[key] = move_toward(flashes[key], 0.0, delta * 1.8)
 		var rows := _live_rows() if mode == "live" else []
-		var h := _row_height(rows.size()) if mode == "live" else DESIGN_ROW
+		var h := _unit(rows) if mode == "live" else DESIGN_ROW
 		robot.scale = Vector2.ONE * clampf(h / 30.0, 0.32, 0.5)
 		robot.position = Vector2(12, robot_y + h * 0.42)
 		robot.walking = glide != null and glide.is_running()
 		chomper.visible = mode == "live" and bottom >= 0 and heap >= 0
 		if chomper.visible:
+			var tops := _tops(rows, h)
 			var y := TOP
 			for i in range(rows.size()):
 				if rows[i].kind == "heap":
-					y = TOP + h * i
+					y = tops[i]
 					break
 			chomper.scale = Vector2.ONE * 0.5
 			chomper.position = Vector2(size.x / 2.0 + 40, y - 12)
@@ -365,7 +391,7 @@ class TowerView extends Control:
 			_draw_live(font)
 		if message_alpha > 0.0:
 			var alpha := minf(1.0, message_alpha * 2.0)
-			var lines := _wrap(font, message, size.x - 40, 14)
+			var lines := _wrap(font, message, size.x - 48, 14)  # The box's width less its margins.
 			var height := 10.0 + 19.0 * lines.size()
 			var box := Rect2(Vector2(12, size.y / 2.0 - height / 2.0), Vector2(size.x - 24, height))
 			Style.rounded(self, box, Color(BG, 0.95 * alpha), 10, Color(message_color, alpha), 2)
@@ -398,11 +424,12 @@ class TowerView extends Control:
 
 	func _draw_live(font: Font) -> void:
 		var rows := _live_rows()
-		var h := _row_height(rows.size())
+		var h := _unit(rows)
+		var tops := _tops(rows, h)
 		var small := int(clampf(h * 0.58, 9.0, 12.0))
 		for i in range(rows.size()):
 			var row: Dictionary = rows[i]
-			var rect := Rect2(Vector2(LEFT, TOP + h * i + 1), Vector2(size.x - LEFT - 4, h - 2))
+			var rect := Rect2(Vector2(LEFT, float(tops[i]) + 1), Vector2(size.x - LEFT - 4, h * _weight(row) - 2))
 			match str(row.kind):
 				"caller":
 					_draw_caller(font, rect)
@@ -431,8 +458,8 @@ class TowerView extends Control:
 					draw_string(MONO, Vector2(inner.position.x, base_y), Assembly.word_text(value), HORIZONTAL_ALIGNMENT_RIGHT,
 						inner.size.x - 8, small + 1, Color(TEXT, 0.3) if value == JUNK else TEXT.lerp(Color.WHITE, glow))
 				"free":
-					draw_dashed_line(Vector2(LEFT + 12, rect.position.y + h / 2.0), Vector2(rect.end.x - 4, rect.position.y + h / 2.0),
-						Color(TEXT, 0.12), 1.0, 4.0)
+					var middle := rect.position.y + rect.size.y / 2.0
+					draw_dashed_line(Vector2(LEFT + 12, middle), Vector2(rect.end.x - 4, middle), Color(TEXT, 0.12), 1.0, 4.0)
 				"heap":
 					Style.rounded(self, Rect2(rect.position + Vector2(10, 0), rect.size - Vector2(10, 0)), Color(ORANGE, 0.22), 3,
 						Color(ORANGE, 0.5), 1)

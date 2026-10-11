@@ -26,7 +26,7 @@
   {
    "ordinal": 1,
    "pool": "tutorial",
-   "prompt": "a0 holds the robot's address. An int is 4 bytes, so each step right adds 4. Walk to the exit.",
+   "prompt": "Walk the robot to the exit.\na0 holds the robot's address. An int is 4 bytes, so each step right adds 4.",
    "code_snippet": null,
    "hint": "Press → (or click the next cell) four times.",
    "explanation": "Each step is addi a0, a0, 4: 0x4000 → 0x4004 → 0x4008 → 0x400C → 0x4010.",
@@ -45,7 +45,7 @@
   {
    "ordinal": 2,
    "pool": "tutorial",
-   "prompt": "Base + offset: lw a2, 8(a0) loads the int 8 bytes past a0. Load arr[3] into a2, then exit.",
+   "prompt": "Load arr[3] into a2, then reach the exit.\nBase + offset: lw a2, 8(a0) loads the int 8 bytes past a0.",
    "code_snippet": "a2 = arr[3];",
    "hint": "Click arr[3] and load it: from 0x4000 it's 3 ints × 4 bytes = 12 bytes on.",
    "explanation": "R[rd] = M[R[rs1] + offset]: from a0 = 0x4000, lw a2, 12(a0) reads 0x400C, which is arr[3] = 40. (The slides write it lw x12, 12(x10).) After one step, the same int is lw a2, 8(a0).",
@@ -84,7 +84,7 @@
   {
    "ordinal": 3,
    "pool": "tutorial",
-   "prompt": "sw writes a register into memory. t2 holds 8, and arr[3] is a door that opens when it holds 8.",
+   "prompt": "Store 8 in arr[3] to open its door, then reach the exit.\nsw writes a register into memory, and t2 holds 8.",
    "code_snippet": "arr[3] = 8;",
    "hint": "Click arr[3] and store t2 there: sw t2, 12(a0) from where you start.",
    "explanation": "M[R[rs1] + offset] = R[rs2]: sw t2, 12(a0) writes 8 over the 40 at 0x400C (the slides' sw x7, 12(x10)), so the array is now 5, 90, 100, 8, 11.",
@@ -125,7 +125,7 @@
   {
    "ordinal": 4,
    "pool": "tutorial",
-   "prompt": "Too far to walk with 3 instructions. Tap loop:, show the robot one step, then tap Repeat.",
+   "prompt": "Reach the exit with at most 3 instructions.\nIt's too far to walk, so teach the robot one step and let it repeat.",
    "code_snippet": "while (a0 != a1) a0 += 4;",
    "hint": "loop:, then one step right, then Repeat while a0 ≠ a1.",
    "explanation": "bne a0, a1, loop jumps back to loop: until a0 equals a1: one step written, seven steps taken.",
@@ -151,7 +151,7 @@
   {
    "ordinal": 5,
    "pool": "memory",
-   "prompt": "Rows sit end to end in memory. This room is 4 words wide, so one row down is 4 × 4 = 16 bytes on.",
+   "prompt": "Reach the exit, two rows down.\nRows sit end to end in memory. This room is 4 words wide, so one row down is 16 bytes on.",
    "code_snippet": null,
    "hint": "Go down twice (+16 each), then right three times.",
    "explanation": "Memory is one long line of bytes: the word below is a whole row later, so a step down is addi a0, a0, 16 here. Any word is at base + 4 × (row × width + column).",
@@ -172,7 +172,7 @@
   {
    "ordinal": 6,
    "pool": "memory",
-   "prompt": "Memory can't do math. This door holds 7 and opens at 12: load it, add 5 in a register, store it back.",
+   "prompt": "Open the door, then reach the exit.\nThe door holds 7 and opens at 12. Memory can't do math: load it, add 5 in a register, store it back.",
    "code_snippet": "door = door + 5;",
    "hint": "Load the door into t0, press addi t0, t0, 5, then store t0 back into the door.",
    "explanation": "RISC-V is a load/store architecture: data is loaded into registers, processed there, and written back with stores. lw, addi, sw is how door = door + 5 really runs.",
@@ -210,7 +210,7 @@
   {
    "ordinal": 7,
    "pool": "memory",
-   "prompt": "Each door holds the code the other one needs. Swap their words; you have two registers, t0 and t1.",
+   "prompt": "Swap the two doors' words, then reach the exit.\nEach door holds the code the other one needs. You have two registers, t0 and t1.",
    "code_snippet": "t = A; A = B; B = t;",
    "hint": "Load both doors first (into t0 and t1), then store each register into the other door.",
    "explanation": "A swap needs two registers: load both words before storing, or the first store overwrites a value you still need. Negative offsets reach backwards: door A is above and behind the robot.",
@@ -260,7 +260,7 @@
   {
    "ordinal": 8,
    "pool": "memory",
-   "prompt": "Array math: fill the blanks so t0 = arr[i] + arr[i+1]. It's tested with i = 1 and i = 3.",
+   "prompt": "Fill the blanks so t0 = arr[i] + arr[i+1].\nIt's tested with i = 1 and i = 3, so it has to work for any i.",
    "code_snippet": "sum = arr[i] + arr[i+1];   // arr is t1, i is t2, sum is t0",
    "hint": "arr[i] is at arr + i × 4 (slli by 2), and arr[i+1] is one int, 4 bytes, after it.",
    "explanation": "Find the address once: t3 = t1 + (i << 2) is &arr[i]. Then arr[i] is 0(t3) and arr[i+1] is 4(t3).",
@@ -341,7 +341,7 @@
   {
    "ordinal": 9,
    "pool": "branches",
-   "prompt": "If/else: x is a0 and y is a1. If x < 5, y = y + 3; otherwise y doubles. It's tested with x = 3 and x = 7.",
+   "prompt": "Fill the blanks to finish this if/else.\nx is a0 and y is a1. It's tested with x = 3 and x = 7, so both paths have to work.",
    "code_snippet": "if (x < 5) y = y + 3; else y = y << 1;",
    "hint": "slti sets t0 to 1 when x < 5. Branch to else when t0 is 0, and make the if part jump over else.",
    "explanation": "beq t0, x0, else skips the if part when x ≥ 5 (y: 4 → 8). With x = 3, y becomes 7 and j done jumps over else; without it, the if part falls into else and doubles y too.",
@@ -410,7 +410,7 @@
   {
    "ordinal": 10,
    "pool": "branches",
-   "prompt": "The exit is the first 0 in this row. Teach a loop that stops when it loads a 0 (x0 always holds 0).",
+   "prompt": "Reach the exit: the first 0 in this row.\nTeach a loop that stops when it loads a 0 (x0 always holds 0).",
    "code_snippet": "while (*p != 0) p++;   // p is a0",
    "hint": "Step, load the new word into t1, then Repeat while t1 ≠ 0.",
    "explanation": "A sentinel loop stops on the data, not on a count: bne t1, x0, loop goes round again while the word just loaded isn't 0.",
@@ -445,7 +445,7 @@
   {
    "ordinal": 11,
    "pool": "loops",
-   "prompt": "Copy a[] into the vault below it. Teach the robot one int, then Repeat. The room is 7 words wide.",
+   "prompt": "Copy a[] into the vault below it, then reach the exit.\nTeach the robot one int, then Repeat. This room is 7 words wide.",
    "code_snippet": "for (i = 0; i < 6; i++) vault[i] = a[i];",
    "hint": "Tap loop:, load the int under you, store it 28 bytes on (a row down), step right. Then Repeat while a0 < a1.",
    "explanation": "Everything in the loop is relative to a0, so the same four lines copy every int: lw, sw 28(a0), step 4, and blt back while a0 < a1. bge would jump back only once a0 ≥ a1.",
@@ -504,7 +504,7 @@
   {
    "ordinal": 12,
    "pool": "loops",
-   "prompt": "The loop from lecture: add up values[0] to values[5] into t2. t0 is i, and t6 holds 6.",
+   "prompt": "Add values[0] through values[5] into t2, then reach the exit.\nThe loop from lecture: t0 is i, and t6 holds 6.",
    "code_snippet": "for (i = 0; i < 6; i++) sum += values[i];",
    "hint": "Tap loop:, load values[i] into t1, add it to t2, step, add 1 to i, then Repeat while i < 6.",
    "explanation": "Load values[i], add it to the sum, move to the next int, and i++: blt t0, t6 jumps back while i < 6. The lecture finds values[i] with slli t1, t0, 2 (i × 4); stepping a0 by 4 each pass does the same job.",
@@ -562,7 +562,7 @@
   {
    "ordinal": 13,
    "pool": "loops",
-   "prompt": "Counting down: this loop should add 2 to every int in arr while i counts down from 3. Fill the blanks; the run shows what's left in arr and t0.",
+   "prompt": "Fill the blanks so the loop adds 2 to every int in arr.\ni is t0 and counts down from 3. The tests check arr and where i ends up.",
    "code_snippet": "for (i = 3; i >= 0; i--) arr[i] += 2;",
    "hint": "Store the new value back where you loaded it from, and keep looping while i ≥ 0.",
    "explanation": "The body runs 4 times (i = 3, 2, 1, 0): arr becomes 5, 7, 9, 11 and t0 ends at -1. bne t0, x0 would stop before i = 0 and skip arr[0].",
@@ -646,7 +646,7 @@
   {
    "ordinal": 14,
    "pool": "procedures",
-   "prompt": "Calling a function: main calls func, then adds 1. jal puts PC + 4 in ra and jumps; jalr jumps back to ra. Make main finish with a0 = 10.",
+   "prompt": "Fill the blanks so main finishes with a0 = 10.\nmain calls func, then adds 1. jal puts PC + 4 in ra and jumps; jalr jumps back to ra.",
    "code_snippet": "a0 = func(6) + 1;   // func(x) returns x + 3",
    "hint": "jal ra, func at 0x104 sets ra = 0x108. func returns with jalr x0, 0(ra).",
    "explanation": "jal ra, func at 0x104 saves 0x108 (PC + 4) in ra and jumps to func; jalr x0, 0(ra) jumps back to 0x108, which adds the 1. j func jumps without saving a return address, and 4(ra) would skip the add.",
@@ -703,7 +703,7 @@
   {
    "ordinal": 15,
    "pool": "procedures",
-   "prompt": "Stack frames: main saves ra and a0 on the stack, calls func(6), keeps the answer in result, then restores both and returns. Fill the blanks.",
+   "prompt": "Fill the blanks so main stores func(6) in result and returns.\nmain saves ra and a0 on the stack before the call and restores both before returning.",
    "code_snippet": "result = func(6);   // func(x) returns x + 3",
    "hint": "Make room with addi sp, sp, -8, save ra at 4(sp) before jal overwrites it, and store func's answer before lw a0, 0(sp) brings back main's old a0.",
    "explanation": "main allocates 8 bytes (addi sp, sp, -8). jal ra, func overwrites ra with 0x114, which is why main saved its own return address first. func returns 9 in a0, but lw a0, 0(sp) brings back main's old a0 (2), so the answer has to be stored before that.",
@@ -806,7 +806,7 @@
   {
    "ordinal": 16,
    "pool": "finale",
-   "prompt": "The Chip Chomper is eating a[], one int every 4 instructions. Copy it into the vault before it's eaten.",
+   "prompt": "Copy a[] into the vault before the Chip Chomper eats it.\nThe Chomper eats one int every 4 instructions, so keep the loop short.",
    "code_snippet": "for (i = 0; i < 6; i++) vault[i] = a[i];",
    "hint": "Tap loop:, then keep the loop to 4 instructions: load, store a row up (-28), step, Repeat. Every extra line slows every pass.",
    "explanation": "A loop costs its body times its passes: 4 instructions an int kept you just ahead of the Chomper's 4 instructions an int.",

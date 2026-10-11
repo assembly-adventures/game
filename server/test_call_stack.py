@@ -1,14 +1,13 @@
-"""Level 3 (the Call Stack Tower): the machine, grading, and every room's design; needs no database."""
+"""Level 3 (the Call Stack Tower): the machine, grading, and every walkthrough's design; needs no
+database."""
 
-from copy import deepcopy
-from itertools import permutations
 import json
 from pathlib import Path
 import unittest
 
 from fastapi import HTTPException
 
-from server.call_stack import (CHOMPER, CODE_BASE, JUNK, STACK_TOP, assemble, audit, chain, frame_lines, junk,
+from server.call_stack import (CHOMPER, CODE_BASE, JUNK, STACK_TOP, assemble, audit, frame_lines, junk, moments,
                                restored, run, setup)
 from server.grading import snapshot
 from server.puzzles import MASK, execute, grade_puzzle, parse_line, reg
@@ -16,65 +15,43 @@ from server.puzzles import MASK, execute, grade_puzzle, parse_line, reg
 BANK = json.loads((Path(__file__).parents[1] / "levels/level_3/guest_rooms.json").read_text())
 ROOMS = BANK["rooms"]
 ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
-# One winning answer per Level 3 room, by ordinal (db/migrations/0009_level3_call_stack_tower.sql):
-# a frame layout from sp+0 up, the typed values, or a verdict.
-SOLUTIONS = {
-    1: {"frame": ["ra"]},
-    2: {"values": [9, 4, 1]},
-    3: {"line": 0x100, "clause": "callee-save"},
-    4: {"frame": ["s0", "ra"]},
-    5: {"frame": ["a0", "ra"]},
-    6: {"frame": ["s1", "s0", "ra"]},
-    7: {"frame": ["ra"]},
-    8: {"frame": []},
-    9: {"values": [24, 6, 2, 1]},
-    10: {"values": [12, 18, 12, 6, 6, 6, 6]},
-    11: {"values": [0x110, 0x13C, 0x13C, 0x13C]},
-    12: {"values": [5, 4, 3, 2]},
-    13: {"line": 0x100, "clause": "save-ra"},
-    14: {"line": 0x118, "clause": "caller-save"},
-    15: {"line": 0x128, "clause": "restore-sp"},
-    16: {"line": 0x120, "clause": "callee-save"},
-    17: {"frame": ["s0", "ra"]},
-}
-# How each Code Lawyer room's program is put right: its broken lines, replaced. The repaired
-# program must pass the Chomper's audit, which shows the verdict named the real problem.
-REPAIRS = {
-    3: {"add s1, a0, a0": ["add t1, a0, a0"], "add a0, s1, x0": ["add a0, t1, x0"]},
-    13: {"jal ra, inc": ["addi sp, sp, -4", "sw ra, 0(sp)", "jal ra, inc"],
-         "jr ra": ["lw ra, 0(sp)", "addi sp, sp, 4", "jr ra"]},
-    14: {"add t0, x0, a0": ["addi sp, sp, -4", "sw a0, 0(sp)"],
-         "mul a0, a0, t0": ["lw t0, 0(sp)", "addi sp, sp, 4", "mul a0, a0, t0"]},
-    15: {"addi sp, sp, 4": ["addi sp, sp, 8"]},
-    16: {"addi sp, sp, -8": ["addi sp, sp, -12", "sw s1, 8(sp)"],
-         "addi sp, sp, 8": ["lw s1, 8(sp)", "addi sp, sp, 12"]},
+# One winning answer per Level 3 walkthrough, by ordinal (db/migrations/0012_level3_walkthroughs.sql):
+# the option picked at each moment.
+SOLUTIONS = {1: {"choices": [0]}, 2: {"choices": [0]}, 3: {"choices": [1]}, 4: {"choices": [0]},
+             5: {"choices": [0]}, 6: {"choices": [0]}, 7: {"choices": [0]}, 8: {"choices": [0]}}
+# Runs started before the walkthroughs keep snapshots of three earlier kinds of room (0009), which
+# are still graded: one room of each, as 0009 inserted it.
+EARLIER = {
+    "frame": {"kind": "frame", "entry": "plus1",
+              "code": [{"label": "plus1"}, {"prologue": True}, {"line": "jal ra, triple"}, {"line": "addi a0, a0, 1"},
+                       {"epilogue": True}, {"line": "jr ra"}, {"label": "triple"}, {"line": "slli t0, a0, 1"},
+                       {"line": "add a0, a0, t0"}, {"line": "jr ra"}],
+              "blocks": ["ra", "s0", "a0"], "max_slots": 3, "par": 1,
+              "calls": [{"args": {"a0": 4}, "expect": 13}, {"args": {"a0": -2}, "expect": -5},
+                        {"args": {"a0": 7}, "expect": 22}]},
+    "elevator": {"kind": "elevator", "entry": "sqr", "function": "sqr",
+                 "code": [{"label": "sqr"}] + [{"line": line} for line in (
+                     "addi sp, sp, -8", "sw ra, 4(sp)", "sw s0, 0(sp)", "slti t0, a0, 2", "bne t0, x0, done",
+                     "add s0, x0, a0", "addi a0, a0, -1", "jal ra, sqr", "add a0, a0, s0", "add a0, a0, s0",
+                     "addi a0, a0, -1")] + [{"label": "done"}] + [{"line": line} for line in (
+                     "lw s0, 0(sp)", "lw ra, 4(sp)", "addi sp, sp, 8", "jalr x0, 0(ra)")],
+                 "calls": [{"args": {"a0": 3}, "expect": 9}], "params": ["a0"], "columns": ["ret"], "floors": 3,
+                 "blanks": [[0, "ret"], [1, "ret"], [2, "ret"]]},
+    "lawyer": {"kind": "lawyer", "entry": "double",
+               "code": [{"label": "double"}, {"line": "add s1, a0, a0"}, {"line": "add a0, s1, x0"}, {"line": "ret"}],
+               "calls": [{"args": {"a0": 5}, "expect": 10}],
+               "clauses": ["caller-save", "callee-save", "save-ra", "restore-sp"],
+               "verdict": {"lines": [256], "clause": "callee-save"}},
 }
 
-# The lines each verdict accepts, by text, so a moved line can't silently change the answer.
-NAMED = {3: {"add s1, a0, a0"}, 13: {"jal ra, inc"}, 14: {"jal ra, fact", "mul a0, a0, t0"}, 15: {"addi sp, sp, 4"},
-         16: {"add s1, x0, a0"}}
+
+def good_choices(payload):
+    """The first good option at each of a walkthrough's moments."""
+    return [next(k for k, option in enumerate(entry["options"]) if option["good"]) for entry in moments(payload)]
 
 
-def answer(ordinal):
-    return SOLUTIONS[ordinal]
-
-
-def repaired(payload, fixes):
-    """The payload with each broken line replaced. A line that appears more than once is replaced
-    where it first appears (and only once) unless it is a return, which is replaced at the
-    function's own return (its first one)."""
-    payload = deepcopy(payload)
-    done = set()
-    code = []
-    for entry in payload["code"]:
-        line = entry.get("line")
-        if line in fixes and line not in done:
-            done.add(line)
-            code += [{"line": text} for text in fixes[line]]
-        else:
-            code.append(entry)
-    payload["code"] = code
-    return payload
+def passes(payload, choices):
+    return all(row["passed"] for row in audit(payload, choices=choices))
 
 
 def machine(lines, calls, entry="f", **extra):
@@ -120,11 +97,26 @@ class MachineTests(unittest.TestCase):
         self.assertEqual((memory[STACK_TOP - 4], len(memory)), (JUNK, 32))
 
     def test_calls_record_entry_values_and_returns(self):
-        payload = ROOM[11]
-        floors = chain(payload)
-        self.assertEqual([(floor["a0"], floor["ra"], floor["ret"]) for floor in floors],
-                         [(4, 0x110, 16), (3, 0x13C, 9), (2, 0x13C, 4), (1, 0x13C, 1)])
-        self.assertEqual([floor["depth"] for floor in floors], [2, 3, 4, 5])  # main is depth 1.
+        payload = ROOM[5]  # sqr(3), with ra and s0 saved.
+        lines, labels = assemble(payload, choices=[0])
+        calls = run(payload, lines, labels, 0)["calls"]
+        back = CODE_BASE + 4 * lines.index("jal ra, sqr") + 4
+        self.assertEqual([(call["a0"], call["ra"], call["ret"]) for call in calls],
+                         [(3, CHOMPER, 9), (2, back, 4), (1, back, 1)])
+        self.assertEqual([call["depth"] for call in calls], [1, 2, 3])
+
+    def test_a_walkthrough_writes_each_move_where_it_stands(self):
+        plus1, plus2 = ROOM[1], ROOM[2]
+        self.assertNotIn("jal ra, triple", assemble(plus1)[0])  # The move isn't made yet.
+        lines, _ = assemble(plus1, choices=[0])
+        self.assertEqual(lines[:3], ["addi sp, sp, -4", "sw ra, 0(sp)", "jal ra, triple"])
+        self.assertEqual(assemble(plus1, choices=[1])[0][2], "j triple")
+        # A frame move writes its prologue at the moment and its epilogue at the epilogue mark.
+        lines, labels = assemble(plus2, choices=[0])
+        self.assertEqual(lines[:2], ["addi sp, sp, -4", "sw ra, 0(sp)"])
+        self.assertEqual(lines[labels["inc"] // 4 - CODE_BASE // 4 - 3:labels["inc"] // 4 - CODE_BASE // 4],
+                         ["lw ra, 0(sp)", "addi sp, sp, 4", "jr ra"])
+        self.assertEqual(assemble(plus2, choices=[1])[0][:2], ["jal ra, inc", "jal ra, inc"])
 
     def test_crashes_are_named(self):
         cases = {
@@ -152,111 +144,100 @@ class GradingTests(unittest.TestCase):
             with self.subTest(room=ordinal):
                 self.assertTrue(grade_puzzle(ROOM[ordinal], response))
 
-    def test_wrong_answers_fail(self):
-        self.assertFalse(grade_puzzle(ROOM[1], {"frame": []}))  # ra lost: plus1 never returns.
-        self.assertFalse(grade_puzzle(ROOM[4], {"frame": ["ra"]}))  # s0 clobbered.
-        self.assertFalse(grade_puzzle(ROOM[5], {"frame": ["ra", "a0"]}))  # lw t1, 0(sp) reads ra.
-        self.assertFalse(grade_puzzle(ROOM[9], {"values": [24, 6, 2, 2]}))
-        self.assertFalse(grade_puzzle(ROOM[3], {"line": 0x100, "clause": "caller-save"}))  # Right line, wrong rule.
-        self.assertFalse(grade_puzzle(ROOM[3], {"line": 0x104, "clause": "callee-save"}))  # Wrong line.
-        self.assertTrue(grade_puzzle(ROOM[14], {"line": 0x11C, "clause": "caller-save"}))  # Either named line.
+    def test_wrong_moves_fail(self):
+        for ordinal, payload in ROOM.items():
+            for m, entry in enumerate(moments(payload)):
+                for k, option in enumerate(entry["options"]):
+                    choices = good_choices(payload)
+                    choices[m] = k
+                    with self.subTest(room=ordinal, option=option["label"]):
+                        self.assertEqual(grade_puzzle(payload, {"choices": choices}), option["good"])
 
     def test_rejects_malformed_answers(self):
-        cases = [
-            (1, {"frame": ["sp"]}), (1, {"frame": ["ra", "ra"]}), (1, {"frame": "ra"}), (1, {"frame": [1]}),
-            (1, {"frame": ["ra"], "extra": 1}), (6, {"frame": ["ra", "s0", "s1", "a0", "t0", "ra"]}),
-            (2, {"values": [9, 4]}), (2, {"values": [9, 4, "1"]}), (2, {"values": [9, 4, True]}), (2, {"frame": []}),
-            (3, {"line": 0x102, "clause": "callee-save"}), (3, {"line": 0x10C, "clause": "callee-save"}),
-            (3, {"line": 0x100, "clause": "be-nice"}), (3, {"line": 0x100}), (3, {"line": "0x100", "clause": "save-ra"}),
-        ]
-        for ordinal, response in cases:
+        for response in ({"choices": []}, {"choices": [0, 0]}, {"choices": [5]}, {"choices": [-1]},
+                         {"choices": ["0"]}, {"choices": [True]}, {"choices": 0}, {"choices": [0], "extra": 1}, {}):
             with self.subTest(response=response), self.assertRaises(HTTPException) as caught:
-                grade_puzzle(ROOM[ordinal], response)
+                grade_puzzle(ROOM[1], response)
             self.assertEqual(caught.exception.status_code, 422)
 
-    def test_snapshots_keep_the_verdict_private(self):
-        question = {"id": "q", "type": "puzzle", "prompt": "p", "code_snippet": None, "hint": None, "payload": ROOM[3]}
+    def test_runs_started_earlier_still_grade(self):
+        frame, elevator, lawyer = EARLIER["frame"], EARLIER["elevator"], EARLIER["lawyer"]
+        self.assertTrue(grade_puzzle(frame, {"frame": ["ra"]}))
+        self.assertFalse(grade_puzzle(frame, {"frame": []}))  # ra lost: plus1 never returns.
+        self.assertTrue(grade_puzzle(elevator, {"values": [9, 4, 1]}))
+        self.assertFalse(grade_puzzle(elevator, {"values": [9, 4, 2]}))
+        self.assertTrue(grade_puzzle(lawyer, {"line": 0x100, "clause": "callee-save"}))
+        self.assertFalse(grade_puzzle(lawyer, {"line": 0x100, "clause": "caller-save"}))  # Right line, wrong rule.
+        self.assertFalse(grade_puzzle(lawyer, {"line": 0x104, "clause": "callee-save"}))  # Wrong line.
+        for payload, response in ((frame, {"frame": ["sp"]}), (frame, {"frame": ["ra", "ra"]}),
+                                  (elevator, {"values": [9, 4]}), (elevator, {"values": [9, 4, "1"]}),
+                                  (lawyer, {"line": 0x102, "clause": "callee-save"}),
+                                  (lawyer, {"line": 0x100, "clause": "be-nice"})):
+            with self.subTest(response=response), self.assertRaises(HTTPException) as caught:
+                grade_puzzle(payload, response)
+            self.assertEqual(caught.exception.status_code, 422)
+
+    def test_snapshots_keep_a_verdict_private(self):
+        question = {"id": "q", "type": "puzzle", "prompt": "p", "code_snippet": None, "hint": None,
+                    "payload": EARLIER["lawyer"]}
         public, solution = snapshot(question)
         self.assertNotIn("verdict", public["payload"])
-        self.assertEqual(solution["puzzle"]["verdict"], ROOM[3]["verdict"])
+        self.assertEqual(solution["puzzle"]["verdict"], EARLIER["lawyer"]["verdict"])
         self.assertIn("calls", public["payload"])
 
 
 class RoomDesignTests(unittest.TestCase):
-    """Each room teaches what it says: par is the smallest working frame, elevator answers match the
-    functions in C, every verdict names the real crime, and the finale needs a tight frame."""
+    """Each walkthrough teaches what it says: its good moves keep the contract, every wrong move
+    breaks it (so playing it out shows something real), and every room stays short enough to follow."""
 
-    def test_the_bank_and_its_draw(self):
-        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, len(ROOMS) + 1)))
-        pools = {}
-        for room in ROOMS:
-            pools.setdefault(room["pool"], []).append(room["ordinal"])
-        self.assertEqual([slot["pool"] for slot in BANK["draw"]], list(pools))
-        self.assertEqual(sum(slot.get("take", len(pools[slot["pool"]])) for slot in BANK["draw"]), 10)
-        self.assertEqual([ROOM[n]["kind"] for n in pools["tutorial"]], ["frame", "elevator", "lawyer"])
-        for room in ROOMS:
-            self.assertTrue(room["prompt"] and room["code_snippet"] and room["hint"] and room["explanation"])
-
-    def test_par_is_the_smallest_frame_that_works(self):
+    def test_the_story_plays_in_order(self):
+        self.assertNotIn("draw", BANK)
+        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, 9)))
         for room in ROOMS:
             payload = room["payload"]
-            if payload["kind"] != "frame":
-                continue
             with self.subTest(room=room["ordinal"]):
-                working = [list(layout) for size in range(payload["max_slots"] + 1)
-                           for layout in permutations(payload["blocks"], size)
-                           if all(row["passed"] for row in audit(payload, layout))]
-                self.assertEqual(min(len(layout) for layout in working), payload["par"])
-                self.assertIn(SOLUTIONS[room["ordinal"]]["frame"], working)
+                self.assertEqual(payload["kind"], "walk")
+                goal, _, detail = room["prompt"].partition("\n")
+                self.assertTrue(goal and detail and room["code_snippet"] and room["hint"] and room["explanation"])
+                self.assertTrue(payload["intro"])
+                self.assertTrue(1 <= len(payload["watch"]) <= 4)
+                self.assertTrue(all(name in ("a0", "ra", "sp", "t0", "s0", "s1") for name in payload["watch"]))
 
-    def test_the_finale_needs_a_tight_frame(self):
-        finale = ROOM[17]
+    def test_every_move_is_marked_by_what_it_does(self):
+        for ordinal, payload in ROOM.items():
+            for m, entry in enumerate(moments(payload)):
+                with self.subTest(room=ordinal, moment=m):
+                    self.assertTrue(entry["ask"])
+                    self.assertTrue(2 <= len(entry["options"]) <= 3)
+                    self.assertTrue(any(option["good"] for option in entry["options"]))
+                    for k, option in enumerate(entry["options"]):
+                        self.assertTrue(option["label"] and option["why"])
+                        choices = good_choices(payload)
+                        choices[m] = k
+                        self.assertEqual(passes(payload, choices), option["good"], option["label"])
+
+    def test_each_move_waits_where_it_stands_and_walks_stay_short(self):
+        for ordinal, payload in ROOM.items():
+            with self.subTest(room=ordinal):
+                # A line between moments: each stops the walk at its own address.
+                kinds = "".join("m" if "moment" in entry else "l" if "line" in entry else "" for entry in payload["code"])
+                self.assertNotIn("mm", kinds)
+                self.assertFalse(kinds.endswith("m"))
+                lines, labels = assemble(payload, choices=good_choices(payload))
+                self.assertLessEqual(run(payload, lines, labels, 0)["steps"], 80)
+
+    def test_every_working_frame_wins_the_finale(self):
+        finale = ROOM[8]
+        self.assertIn("chomper", finale)
+        options = moments(finale)[0]["options"]
+        self.assertEqual([option["frame"] for option in options if option["good"] and not option.get("loose")],
+                         [["s0", "ra"]])
+        self.assertTrue(any(option.get("loose") and option["good"] for option in options))
         free = dict(finale, stack_words=64)
         del free["chomper"]
-        for size in range(2, len(finale["blocks"]) + 1):
-            for layout in permutations(finale["blocks"], size):
-                if all(row["passed"] for row in audit(free, layout)):
-                    rows = audit(finale, layout)
-                    with self.subTest(layout=layout):
-                        if size == 2:
-                            self.assertTrue(all(row["passed"] for row in rows))
-                        else:
-                            self.assertIn(["overflow"], [row["problems"] for row in rows])
-
-    def test_elevator_answers_match_the_c(self):
-        def sqr(x):
-            return x if x < 2 else sqr(x - 1) + x + x - 1
-
-        def fact(x):
-            return x if x <= 1 else x * fact(x - 1)
-
-        def gcd(a, b):
-            return a if a == b else gcd(a - b, b) if a > b else gcd(a, b - a)
-
-        self.assertEqual(SOLUTIONS[2]["values"], [sqr(3), sqr(2), sqr(1)])
-        self.assertEqual(SOLUTIONS[9]["values"], [fact(4), fact(3), fact(2), fact(1)])
-        self.assertEqual(SOLUTIONS[10]["values"][-1], gcd(30, 18))
-        for room in ROOMS:
-            payload = room["payload"]
-            if payload["kind"] == "elevator":
-                with self.subTest(room=room["ordinal"]):
-                    floors = chain(payload)
-                    self.assertEqual(len(floors), payload["floors"])
-                    self.assertTrue(all("ret" in floor for floor in floors))
-                    self.assertTrue(all(0 <= floor < len(floors) for floor, _ in payload["blanks"]))
-
-    def test_every_verdict_names_the_real_crime(self):
-        for room in ROOMS:
-            payload = room["payload"]
-            if payload["kind"] != "lawyer":
-                continue
-            with self.subTest(room=room["ordinal"]):
-                lines, _ = assemble(payload)
-                self.assertFalse(all(row["passed"] for row in audit(payload)), "the crime shows in the audit")
-                fixed = repaired(payload, REPAIRS[room["ordinal"]])
-                self.assertTrue(all(row["passed"] for row in audit(fixed)), "the repaired program passes")
-                named = {lines[(address - CODE_BASE) // 4] for address in payload["verdict"]["lines"]}
-                self.assertEqual(named, NAMED[room["ordinal"]])
+        for k, option in enumerate(options):
+            with self.subTest(option=option["label"]):
+                self.assertEqual(passes(finale, [k]), passes(free, [k]))
 
 
 if __name__ == "__main__":

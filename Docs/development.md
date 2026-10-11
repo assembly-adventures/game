@@ -120,8 +120,9 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `player_data.gd` | Same-origin HTTP requests, profile cache, retry IDs, profile-change signal, guest mode |
 | `levels/gate_level.gd` | Runs a level's gates: answer submission, strikes and setbacks, resume, completion; each level's scene sets its ID and badge |
 | `levels/level_1/puzzle_room.gd`, `levels/level_2/maze_room.gd`, `levels/level_2/code_room.gd` | One gate's puzzle for each payload kind (`moves`, `maze`, `code`), with a client copy of the grader for guest mode |
-| `levels/level_3/frame_room.gd`, `elevator_room.gd`, `lawyer_room.gd` | Level 3's room kinds (`frame`, `elevator`, `lawyer`), built on `tower_room.gd`: the listing, the tower, the Chomper's audit |
-| `levels/level_3/call_machine.gd`, `tower_visuals.gd` | Level 3's machine (a client copy of `server/call_stack.py`, with a trace for animation) and its drawing: the listing and the Call Stack Tower |
+| `levels/level_3/walk_room.gd` | Level 3's walkthroughs (`walk`): Play, Step, and Back through a program on the tower, a caption per line, the registers it watches, and the student's moves (a wrong one plays out and rewinds); built on `tower_room.gd` |
+| `levels/level_3/call_machine.gd`, `tower_visuals.gd` | Level 3's machine (a client copy of `server/call_stack.py`, with a trace for the walkthroughs and stops at moves not made yet) and its drawing: the listing and the Call Stack Tower |
+| `levels/level_3/frame_room.gd`, `elevator_room.gd`, `lawyer_room.gd` | The earlier Level 3 kinds (`frame`, `elevator`, `lawyer`), kept for runs started before the walkthroughs |
 | `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading the assembly lines Levels 2 and 3 write; ABI register names and their x-names |
 | `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
 | `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
@@ -165,8 +166,9 @@ python infra/browser_smoke.py
 ```
 
 **Art, fonts, and audio.** The look is a flat-vector "neon circuit board":
-palette, fonts, and drawing helpers live in `ui/style.gd`, and `GameTheme.tres` is
-the project-wide theme, so new screens match without extra styling. Shared pieces
+palette, fonts, and drawing helpers live in `ui/style.gd` (including the numbered
+steps and the hint box every gate uses), and `GameTheme.tres` is the project-wide
+theme, so new screens match without extra styling. Shared pieces
 are in `ui/`: the circuit backdrop, the robot and Chip Chomper sprites
 (`ui/characters.gd`, art in `assets/sprites/`), and the `Audio` autoload
 (`ui/audio.gd`) for sound effects, music, and the sound switch. Fonts, sprites, and

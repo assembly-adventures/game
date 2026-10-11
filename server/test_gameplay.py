@@ -1,6 +1,7 @@
 """Integration tests against the isolated PostgreSQL database (TEST_DATABASE_URL)."""
 
 from concurrent.futures import ThreadPoolExecutor
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -15,17 +16,16 @@ from itsdangerous import URLSafeTimedSerializer
 from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
 from server.gameplay import draw, register_player, replay
-from server.test_call_stack import ROOM as TOWER, SOLUTIONS as TOWER_SOLUTIONS
-from server.test_puzzles import BANK, SOLUTIONS, answer
+from server.test_call_stack import SOLUTIONS as TOWER_SOLUTIONS
+from server.puzzles import grade_puzzle
+from server.test_puzzles import BANK, GATE_SOLUTIONS, LEVEL1, SOLUTIONS, answer
 
 
 # One winning response per gate, keyed by level and bank ordinal: button presses for Level 1
-# (db/migrations/0005_level1_puzzles.sql), programs or filled blanks for Level 2 (0007), and
-# frames, typed values, or verdicts for Level 3 (0009).
+# (db/migrations/0005_level1_puzzles.sql and 0010), programs or filled blanks for Level 2 (0007), and
+# the moves made at each moment for Level 3 (0012).
 REFERENCE = {
-    1: {ordinal: {"moves": moves} for ordinal, moves in {
-        1: [0], 2: [0, 0, 0], 3: [1, 0], 4: [0, 1, 0], 5: [2, 0], 6: [0, 1], 7: [0, 1], 8: [0, 1], 9: [0, 0, 1],
-        10: [1, 1, 1]}.items()},
+    1: {ordinal: {"moves": moves} for ordinal, moves in GATE_SOLUTIONS.items()},
     2: {ordinal: answer(ordinal) for ordinal in SOLUTIONS},
     3: TOWER_SOLUTIONS,
 }
@@ -57,6 +57,18 @@ class ReplayTests(unittest.TestCase):
             self.assertIn(ordinals[6], [11, 12, 13])
         self.assertGreater(len({tuple(ordinals) for ordinals in runs}), 5)
         self.assertEqual(draw({"draw": None}, bank), bank)
+
+    def test_level_one_draws_the_tutorial_then_one_gate_of_each_topic(self):
+        bank = [{"id": gate["ordinal"], "ordinal": gate["ordinal"], "pool": gate["pool"]} for gate in LEVEL1["rooms"]]
+        pools = {}
+        for gate in LEVEL1["rooms"]:
+            pools.setdefault(gate["pool"], []).append(gate["ordinal"])
+        runs = [[question["ordinal"] for question in draw({"draw": LEVEL1["draw"]}, bank)] for _ in range(60)]
+        for ordinals in runs:
+            self.assertEqual(ordinals[:4], [1, 2, 3, 4])
+            topics = ["hex", "masks", "flips", "signed", "overflow", "shifts"]
+            self.assertEqual([next(pool for pool in topics if n in pools[pool]) for n in ordinals[4:]], topics)
+        self.assertGreater(len({tuple(ordinals) for ordinals in runs}), 5)
 
     def test_strikes_count_only_since_the_player_arrived(self):
         attempts = self.log((0, "a", False), (1, "a", False), (2, "a", True), (3, "b", True))
@@ -209,16 +221,20 @@ class GameplayTests(unittest.TestCase):
                                  [dict(row) for row in rows])
                 self.assertEqual(guest.get('draw') if isinstance(guest, dict) else None, rule)
 
-    def test_gates_accept_any_winning_order_and_reject_bad_presses(self):
+    def test_drawn_gates_take_any_winning_presses_and_reject_bad_ones(self):
         run = self.start()
-        overflow, keep_sign = run['questions'][8], run['questions'][9]
-        self.assertEqual(overflow['payload']['goal'], {'x5': -96})
-        self.assertTrue(overflow['hint'])
-        self.assertEqual(self.answer(run['id'], overflow, {'moves': [1, 1, 1, 1, 1]}).status_code, 422)
-        self.assertEqual(self.answer(run['id'], overflow, {'moves': [2]}).status_code, 422)
-        self.assertFalse(self.answer(run['id'], overflow, {'moves': [1, 1, 1]}).json()['is_correct'])
-        self.assertTrue(self.answer(run['id'], overflow, {'moves': [1, 0, 0]}).json()['is_correct'])
-        self.assertFalse(self.answer(run['id'], keep_sign, {'moves': [0, 0, 0]}).json()['is_correct'])
+        # The last two gates come from the overflow and shifts pools, whichever this run drew.
+        for gate in run['questions'][8:]:
+            payload = gate['payload']
+            limit, keys = payload['max_moves'], len(payload['buttons'])
+            self.assertTrue(gate['hint'])
+            self.assertEqual(self.answer(run['id'], gate, {'moves': [0] * (limit + 1)}).status_code, 422)
+            self.assertEqual(self.answer(run['id'], gate, {'moves': [keys]}).status_code, 422)
+            presses = [list(moves) for n in range(1, limit + 1) for moves in product(range(keys), repeat=n)]
+            loser = next(moves for moves in presses if not grade_puzzle(payload, {'moves': moves}))
+            winner = [moves for moves in presses if grade_puzzle(payload, {'moves': moves})][-1]
+            self.assertFalse(self.answer(run['id'], gate, {'moves': loser}).json()['is_correct'])
+            self.assertTrue(self.answer(run['id'], gate, {'moves': winner}).json()['is_correct'])
 
 
     def test_third_strike_drags_the_player_back_a_gate(self):
@@ -291,23 +307,20 @@ class GameplayTests(unittest.TestCase):
                 AND is_correct""", (run['id'], frame['id'])).fetchone()
         self.assertEqual(saved['response'], {'blanks': SOLUTIONS[15]})  # Attempts keep what the student chose.
 
-    def test_call_stack_tower_draws_ten_rooms_keeps_verdicts_private_and_awards_its_badge(self):
+    def test_call_stack_tower_plays_its_story_and_awards_its_badge(self):
         run = self.start(3)
         rooms = run['questions']
         with connect() as conn:
             bank = {str(row['id']): row['ordinal'] for row in conn.execute(
                 'SELECT id,ordinal FROM aa.questions WHERE level_id=3 AND is_active').fetchall()}
-        ordinals = [bank[room['id']] for room in rooms]
-        self.assertEqual(len(rooms), 10)
-        self.assertEqual(ordinals[:3] + ordinals[-1:], [1, 2, 3, 17])
-        self.assertEqual([TOWER[n]['kind'] for n in ordinals[3:9]], ['frame'] * 2 + ['elevator'] * 2 + ['lawyer'] * 2)
-        # A Code Lawyer room's verdict never reaches the browser.
-        self.assertNotIn('verdict', rooms[2]['payload'])
-        self.assertEqual(rooms[2]['payload']['clauses'], TOWER[3]['clauses'])
-        # A frame that loses ra is a wrong answer and a strike; a block the room doesn't offer is malformed.
-        result = self.answer(run['id'], rooms[0], {'frame': []}).json()
+        # The eight walkthroughs, in order: no draw.
+        self.assertEqual([bank[room['id']] for room in rooms], list(range(1, 9)))
+        self.assertEqual({room['payload']['kind'] for room in rooms}, {'walk'})
+        # The game never sends a wrong move (it plays out and rewinds), but one sent anyway is a miss and
+        # a strike, and a move the room doesn't offer is malformed.
+        result = self.answer(run['id'], rooms[0], {'choices': [1]}).json()
         self.assertEqual((result['is_correct'], result['strikes']), (False, 1))
-        self.assertEqual(self.answer(run['id'], rooms[0], {'frame': ['t6']}).status_code, 422)
+        self.assertEqual(self.answer(run['id'], rooms[0], {'choices': [2]}).status_code, 422)
         for room in rooms:
             result = self.answer(run['id'], room, self.solution(run['id'], room))
             self.assertEqual(result.status_code, 200, result.text)
@@ -321,7 +334,10 @@ class GameplayTests(unittest.TestCase):
 
     def test_level_one_reads_abi_register_names(self):
         run = self.start()
-        self.assertEqual(run['questions'][3]['prompt'], 'Register t1 is holding 3. add t0, t0, t1 adds whatever t1 holds to t0.')
+        self.assertEqual(run['questions'][3]['prompt'],
+                         'Turn 2 into 13.\nRegister t1 holds 3, and add t0, t0, t1 adds whatever t1 holds to t0.')
+        for question in run['questions']:
+            self.assertNotRegex(question['prompt'] + question['hint'], r'\bx\d+\b')
 
 if __name__ == '__main__':
     unittest.main()
