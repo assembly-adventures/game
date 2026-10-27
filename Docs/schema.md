@@ -295,15 +295,19 @@ Walkthroughs (`kind: "walk"`) are programs the student follows line by line.
 it runs), labels, an epilogue mark, and moments: places where the walk stops for
 the student's move. A moment lists `options`, each a block of `lines` written in
 where the moment stands (`"lines"`), or a `frame` whose prologue is written
-there and whose epilogue goes at the epilogue mark (`"frame"`). The answer is
-the option picked at each moment, in code order; it passes when the program then
-keeps the contract on every one of `calls`. Each option's `good` and `why`, the
-room's `watch` (the registers shown) and `intro`, and the notes only drive the
-screen: the game plays a wrong move out and rewinds it, so it only ever sends a
-working set of moves. In the finale, `chomper` eats a stack word every `every`
-instructions from instruction `start`, from the bottom of the stack
-(`stack_words` words) up; every frame that works still finishes first, and an
-option marked `loose` (good, but bigger than it needs to be) costs a star.
+there and whose epilogue goes at the epilogue mark (`"frame"`). The game shows a
+moment's options as a bank of code blocks in shuffled order, each showing only
+the code it writes (a frame's prologue), and the student drags one into the
+moment's place in the listing; an option's `label` names it for authors and the
+tests and isn't shown. The answer is the option picked at each moment, in code
+order; it passes when the program then keeps the contract on every one of
+`calls`. Each option's `good` and `why`, the room's `watch` (the registers
+shown) and `intro`, and the notes only drive the screen: the game plays a wrong
+move out and rewinds it, so it only ever sends a working set of moves. In the
+finale, `chomper` eats a stack word every `every` instructions from instruction
+`start`, from the bottom of the stack (`stack_words` words) up; every frame that
+works still finishes first, and an option marked `loose` (good, but bigger than
+it needs to be) costs a star.
 
 Runs started before `0012` keep snapshots of three earlier kinds, which are
 still graded: Frame Builder (`frame`: the answer lists `blocks` from `sp+0` up,

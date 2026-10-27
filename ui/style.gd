@@ -29,6 +29,13 @@ static func rounded(canvas: CanvasItem, rect: Rect2, fill: Color, radius: int = 
 	canvas.draw_style_box(style, rect)
 
 
+## A rectangle's outline in dashes: the look of an empty place something can go.
+static func dashed_box(canvas: CanvasItem, rect: Rect2, color: Color, width: float = 2.0, dash: float = 6.0) -> void:
+	var corners := [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
+	for i in range(4):
+		canvas.draw_dashed_line(corners[i], corners[(i + 1) % 4], color, width, dash)
+
+
 ## A numbered step of a gate: what to do, with an optional note on how underneath (or, `inline`,
 ## on the same line after it). Every level numbers its steps beside the controls they use. With
 ## `wrap`, the text fills the row and wraps; without it, the row is as wide as its text, so it can

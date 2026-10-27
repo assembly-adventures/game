@@ -50,8 +50,8 @@ static func moments(room: Dictionary) -> Array:
 ## The room's program: its lines from CODE_BASE, 4 bytes apart (with a frame room's prologue and
 ## epilogue, or a walkthrough's picked moves, written in), which part each line belongs to ("body",
 ## "prologue", "epilogue", or "your move"), the address of each label, where empty parts would go
-## ("slots", for the listing), the address where each move not made yet waits ("stops": address
-## to moment), and each line's note, by line.
+## ("slots", for the listing; a move's names its moment), the address where each move not made yet
+## waits ("stops": address to moment), and each line's note, by line.
 static func assemble(room: Dictionary, frame: Array = [], choices: Array = []) -> Dictionary:
 	var entries := moments(room)
 	var options: Array = []
@@ -88,7 +88,7 @@ static func assemble(room: Dictionary, frame: Array = [], choices: Array = []) -
 			var option = options[moment]
 			if option == null:
 				stops[CODE_BASE + 4 * lines.size()] = moment
-				slots.append({"at": lines.size(), "part": "moment"})
+				slots.append({"at": lines.size(), "part": "moment", "moment": moment})
 			else:
 				var frame_move := str(entry.moment) == "frame"
 				for line in (written[0] if frame_move else option.lines):

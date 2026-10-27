@@ -30,9 +30,11 @@ go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   above the code, and a caption says what each line did, with its values. Play
   runs it at reading pace (each line stays up long enough to read its caption);
   Step and Back move a line at a time. When the walk reaches a move, the student
-  makes it: the call (`jal` or `j`), what a frame saves, where to keep a value
-  across a call, the base case. A wrong move plays out, shows what breaks, and
-  rewinds, costing a star but never a strike. The rooms go in order: a call, the
+  makes it by dragging a block of code from a bank beside the program into the
+  gold slot where it goes: the call (`jal` or `j`), what a frame saves (its
+  prologue; the matching epilogue comes with it), where to keep a value across a
+  call, the base case. A wrong move plays out, shows what breaks, and rewinds,
+  costing a star but never a strike. The rooms go in order: a call, the
   way back, keeping a value, borrowed `s` registers, recursion down and up, the
   base case, two calls, and a race against the Chip Chomper climbing up from the
   heap.

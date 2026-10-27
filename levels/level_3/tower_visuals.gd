@@ -22,20 +22,35 @@ const JUNK := 0xDEADBEEF
 
 ## The program, one instruction every 4 bytes, labels on rows of their own. Lines a frame room's
 ## layout wrote are tinted and tagged, and while the frame is empty a dim row marks where they will
-## go. The running line glows; in a Code Lawyer room any line can be clicked to accuse it.
+## go. The running line glows; in a Code Lawyer room any line can be clicked to accuse it. While a
+## walkthrough waits for a move, its slot opens into a gold drop zone for a block from the bank.
 class ListingView extends Control:
 	signal line_clicked(address: int)
+	signal move_dropped(option: int)  # A bank block landed in the drop zone.
+	signal drag_ended(dropped: bool)  # A bank block was let go, in the drop zone or anywhere else.
 	const TOP := 22.0
 	const LEFT := 4.0
 	var row_height := 17.0  # Shrinks (down to 12) so a long program fits the space it has.
 	const TEXT_X := 64.0
+	const DROP_ROWS := 2.4  # The drop zone's height, in lines.
 	const SLOTS := {"prologue": "(prologue: nothing saved yet)", "epilogue": "(epilogue: nothing restored yet)",
 		"moment": "(your move goes here)"}
-	var rows: Array = []  # {"kind": "label"/"line"/"slot", "text", "address", "part"}
+	var rows: Array = []  # {"kind": "label"/"line"/"slot", "text", "address", "part", and a move's "moment"}
 	var note := "one instruction every 4 bytes"  # Beside the CODE heading.
 	var step := 0  # When the listing is where a numbered step happens, its number (drawn before the note).
 	var running := -1
-	var waiting := false  # A walkthrough is waiting for the move its slot stands for: the slot glows.
+	var waiting := -1:  # The moment a walkthrough waits on, whose slot is the drop zone; -1 for none.
+		set(value):
+			waiting = value
+			_fit()
+			queue_redraw()
+	var dragging := false  # A bank block is in the air: the drop zone lights up.
+	var over := false  # It's over the drop zone.
+	var nudge := 0.0:  # Flashes the drop zone, when a block is clicked instead of dragged.
+		set(value):
+			nudge = value
+			queue_redraw()
+	var drop_note := ""  # A smaller line in the drop zone, under what to do.
 	var selectable := false
 	var selected := -1
 	var marks := {}  # Address → colour, for a verdict's lines.
@@ -54,17 +69,18 @@ class ListingView extends Control:
 			if not at.has(address):
 				at[address] = []
 			at[address].append(str(name))
-		var empty := {}  # Line index → the frame parts that would be written there but are empty.
+		var empty := {}  # Line index → the slots there: empty frame parts, and moves not made yet.
 		for slot in built.get("slots", []):
 			if not empty.has(int(slot.at)):
 				empty[int(slot.at)] = []
-			empty[int(slot.at)].append(str(slot.part))
+			empty[int(slot.at)].append(slot)
 		for k in range(built.lines.size() + 1):
 			var address := CODE_BASE + 4 * k
 			for name in at.get(address, []):
 				rows.append({"kind": "label", "text": name + ":"})
-			for part in empty.get(k, []):
-				rows.append({"kind": "slot", "text": SLOTS[part], "part": part})
+			for slot in empty.get(k, []):
+				rows.append({"kind": "slot", "text": SLOTS[str(slot.part)], "part": str(slot.part),
+					"moment": int(slot.get("moment", -1))})
 			if k < built.lines.size():
 				rows.append({"kind": "line", "text": str(built.lines[k]), "address": address, "part": str(built.parts[k])})
 		_fit()
@@ -72,12 +88,28 @@ class ListingView extends Control:
 
 	func _fit() -> void:
 		var weight := 0.0
-		for row in rows:
-			weight += 1.0 if row.kind == "line" else 0.85
+		for i in range(rows.size()):
+			weight += _weight(i)
 		row_height = clampf((size.y - TOP - 8) / maxf(weight, 1.0), 12.0, 17.0)
 
+	## A row's height in lines: labels and slots are a little shorter than code, and the drop zone taller.
+	func _weight(i: int) -> float:
+		if _is_drop(i):
+			return DROP_ROWS
+		return 1.0 if rows[i].kind == "line" else 0.85
+
 	func _height(i: int) -> float:
-		return row_height * (1.0 if rows[i].kind == "line" else 0.85)
+		return row_height * _weight(i)
+
+	func _is_drop(i: int) -> bool:
+		return waiting >= 0 and rows[i].kind == "slot" and int(rows[i].get("moment", -1)) == waiting
+
+	## Where a bank block can land: the slot the walk waits on (empty when it waits on none).
+	func drop_rect() -> Rect2:
+		for i in range(rows.size()):
+			if _is_drop(i):
+				return Rect2(Vector2(LEFT + 2, row_y(i) + 1), Vector2(size.x - LEFT - 4, _height(i) - 2))
+		return Rect2()
 
 	func row_y(i: int) -> float:
 		var y := TOP
@@ -111,12 +143,35 @@ class ListingView extends Control:
 				line_clicked.emit(int(rows[row].address))
 				accept_event()
 
+	## A bank block lands only in the drop zone (or just around it), and only for the move it's for.
+	func _can_drop_data(at_position: Vector2, data: Variant) -> bool:
+		var fits: bool = data is Dictionary and data.has("move") and int(data.moment) == waiting \
+			and drop_rect().grow(6).has_point(at_position)
+		if fits != over:
+			over = fits
+			queue_redraw()
+		return fits
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		over = false
+		move_dropped.emit(int(data.move))
+
 	func _notification(what: int) -> void:
-		if what == NOTIFICATION_MOUSE_EXIT and hover >= 0:
+		if what == NOTIFICATION_MOUSE_EXIT and (hover >= 0 or over):
 			hover = -1
+			over = false
 			queue_redraw()
 		elif what == NOTIFICATION_RESIZED:
 			_fit()
+		elif what == NOTIFICATION_DRAG_BEGIN:
+			var data = get_viewport().gui_get_drag_data()
+			dragging = data is Dictionary and data.has("move")
+			queue_redraw()
+		elif what == NOTIFICATION_DRAG_END and dragging:
+			dragging = false
+			over = false
+			queue_redraw()
+			drag_ended.emit(get_viewport().gui_is_drag_successful())
 
 	func _draw() -> void:
 		var font := get_theme_default_font()
@@ -141,12 +196,11 @@ class ListingView extends Control:
 					Color(PURPLE, 0.95))
 				continue
 			if row.kind == "slot":
-				var glowing: bool = waiting and row.part == "moment"
-				if glowing:
-					Style.rounded(self, Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, _height(i) - 2)),
-						Color(GOLD, 0.16), 5, GOLD, 2)
+				if _is_drop(i):
+					_draw_drop(font, code_size)
+					continue
 				draw_string(font, Vector2(TEXT_X, y + baseline * 0.85), row.text, HORIZONTAL_ALIGNMENT_LEFT,
-					size.x - TEXT_X - 8, address_size + 1, GOLD if glowing else Color(CYAN, 0.6))
+					size.x - TEXT_X - 8, address_size + 1, Color(CYAN, 0.6))
 				continue
 			var address := int(row.address)
 			var band := Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, row_height - 2))
@@ -167,6 +221,24 @@ class ListingView extends Control:
 				tagged[row.part] = true
 				draw_string(font, Vector2(0, y + baseline), row.part, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 10, address_size,
 					Color(CYAN, 0.7))
+
+	## The drop zone: a dashed gold outline while it waits, solid once a block is in the air, and
+	## brightest with one over it.
+	func _draw_drop(font: Font, font_size: int) -> void:
+		var rect := drop_rect()
+		var lit := 1.0 if over else 0.6 if dragging else nudge
+		Style.rounded(self, rect, Color(GOLD, 0.08 + 0.22 * lit), 6, GOLD.lightened(0.3) if over else GOLD,
+			3 if over else 2 if dragging else 0)
+		if not dragging:
+			Style.dashed_box(self, rect.grow(-1), GOLD)
+		var text := "let go to write it here" if over else "drop it here" if dragging else "drag a block here"
+		var baseline := rect.get_center().y + font_size * 0.35
+		if not drop_note.is_empty():
+			baseline -= font_size * 0.5
+			draw_string(font, Vector2(rect.position.x, baseline + font_size), drop_note, HORIZONTAL_ALIGNMENT_CENTER,
+				rect.size.x, font_size - 2, Color(GOLD, 0.75))
+		draw_string(font, Vector2(rect.position.x, baseline), text, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, font_size + 1,
+			GOLD.lightened(0.3) if over else GOLD)
 
 
 ## The stack as a tower of floors hanging from the top of memory: the Chomper (the caller) at the
