@@ -1,13 +1,17 @@
 """Staff reporting, player visibility preferences, and weekly level standings."""
 
+from collections import Counter
 from datetime import datetime, time, timedelta, timezone
+import json
 import os
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
+from .call_stack import moments
 from .database import connect
+from .puzzles import REGISTERS
 
 COURSE_TIMEZONE = ZoneInfo("America/New_York")
 
@@ -122,6 +126,48 @@ QUESTION_METRICS = """
 """
 
 
+def instruction(button: dict) -> str:
+    """A Level 1 button, written the way the game labels it (asm in puzzle_room.gd)."""
+    if "rs2" in button:
+        last = REGISTERS[button["rs2"]]
+    elif button["op"] in ("andi", "ori", "xori"):
+        last = f"0x{button['imm']:02X}"
+    else:
+        last = str(button["imm"])
+    return f"{button['op']} {REGISTERS[button['rd']]}, {REGISTERS[button['rs1']]}, {last}"
+
+
+def answer_text(kind: str, question_type: str, payload: dict, response: dict) -> list[str]:
+    """A recorded answer as the lines the student saw. Option IDs are random in every run and
+    puzzle answers are indexes, so both are read through that run's own snapshot. An answer this
+    cannot read, such as one from a retired room, is shown as it was recorded."""
+    try:
+        if kind == "walk_choice":
+            option = moments(payload)[response["moment"]]["options"][response["choice"]]
+            return [f"Move {response['moment'] + 1}: {option['label']}"]
+        if question_type == "multiple_choice":
+            options = {item["id"]: item["text"] for item in payload["options"]}
+            return sorted(options[choice] for choice in response["selected_option_ids"])
+        if question_type == "drag_and_drop":
+            tiles = {item["id"]: item["text"] for item in payload["tiles"]}
+            return [f"{n}. {tiles[tile]}" for n, tile in enumerate(response["order"], 1)]
+        if question_type == "matching":
+            choices = {item["id"]: item["text"] for item in payload["choices"]}
+            return [f"{row['text']} → {choices[response['pairs'][row['id']]]}" for row in payload["rows"]]
+        if payload["kind"] == "moves":
+            return [instruction(payload["buttons"][move]) for move in response["moves"]]
+        if payload["kind"] == "maze":
+            return [str(line) for line in response["program"]]
+        if payload["kind"] == "code":
+            return [f"Blank {n}: {line}" for n, line in enumerate(response["blanks"], 1)]
+        if payload["kind"] == "walk":
+            return [f"Move {n}: {entry['options'][choice]['label']}"
+                    for n, (entry, choice) in enumerate(zip(moments(payload), response["choices"]), 1)]
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass
+    return [json.dumps(response, sort_keys=True)]
+
+
 def _questions(conn, level_id: int | None = None, question_id: UUID | None = None) -> list[dict]:
     filters, values = [], []
     if level_id is not None:
@@ -132,7 +178,7 @@ def _questions(conn, level_id: int | None = None, question_id: UUID | None = Non
         values.append(question_id)
     where = "WHERE " + " AND ".join(filters) if filters else ""
     return conn.execute(f"""WITH {ACTIVITY}
-        SELECT q.id,q.level_id,q.ordinal,q.prompt,q.is_active,{QUESTION_METRICS}
+        SELECT q.id,q.level_id,q.ordinal,q.type,q.prompt,q.code_snippet,q.is_active,{QUESTION_METRICS}
         FROM aa.questions q LEFT JOIN student_questions s ON s.question_id=q.id
         {where} GROUP BY q.id ORDER BY q.level_id,q.ordinal,q.created_at""", values).fetchall()
 
@@ -185,11 +231,20 @@ def question_detail(onyen: str, question_id: UUID) -> dict:
         if not questions:
             raise HTTPException(404, "Question not found.")
         stats = questions[0]
-        question = {key: stats[key] for key in ("id", "level_id", "ordinal", "prompt", "is_active")}
-        common = conn.execute(f"""WITH {ACTIVITY}
-            SELECT response,is_correct,kind,count(*) AS count FROM activity WHERE question_id=%s
-            GROUP BY response,is_correct,kind ORDER BY count(*) DESC,is_correct,response::text LIMIT 25""",
-                              (question_id,)).fetchall()
+        question = {key: stats[key] for key in ("id", "level_id", "ordinal", "type", "prompt", "code_snippet",
+                                                "is_active")}
+        # Group by what students saw, not the recorded IDs, which differ in every run. Runs that
+        # share a snapshot (every run of a puzzle version) are read together.
+        snapshots = conn.execute(f"""WITH {ACTIVITY}
+            SELECT rq.public_question->>'type' AS type,rq.public_question->'payload' AS payload,
+                jsonb_agg(jsonb_build_array(a.response,a.is_correct,a.kind)) AS answers
+            FROM activity a JOIN aa.run_questions rq ON rq.run_id=a.run_id AND rq.question_id=a.question_id
+            WHERE a.question_id=%s GROUP BY 1,2""", (question_id,)).fetchall()
+        counts = Counter((tuple(answer_text(kind, row["type"], row["payload"], response)), correct, kind)
+                         for row in snapshots for response, correct, kind in row["answers"])
+        common = [{"answer": list(answer), "is_correct": correct, "kind": kind, "count": count}
+                  for (answer, correct, kind), count in
+                  sorted(counts.items(), key=lambda item: (-item[1], item[0][1], item[0]))[:25]]
         students = conn.execute(f"""WITH {ACTIVITY}
             SELECT p.id,p.onyen,s.attempts,s.solved,s.mistakes,s.attempts_to_solve
             FROM student_questions s JOIN aa.players p ON p.id=s.player_id WHERE s.question_id=%s
@@ -236,10 +291,14 @@ def student_detail(onyen: str, student_id: UUID) -> dict:
             WHERE r.player_id=%s ORDER BY r.started_at DESC,r.id LIMIT 100""", (student_id,)).fetchall()
         attempts = conn.execute(f"""WITH {ACTIVITY}
             SELECT a.question_id,r.level_id,rq.public_question->>'prompt' AS prompt,
+                rq.public_question->>'type' AS type,rq.public_question->'payload' AS payload,
                 a.response,a.is_correct,a.at AS answered_at,a.kind
             FROM activity a JOIN aa.level_runs r ON r.id=a.run_id
             JOIN aa.run_questions rq ON rq.run_id=a.run_id AND rq.question_id=a.question_id
             WHERE a.player_id=%s ORDER BY a.at DESC,a.id LIMIT 200""", (student_id,)).fetchall()
+        for attempt in attempts:
+            attempt["answer"] = answer_text(attempt["kind"], attempt["type"], attempt.pop("payload"),
+                                            attempt.pop("response"))
         totals = conn.execute(f"""WITH {ACTIVITY} SELECT count(*) AS attempts_total,
             (SELECT count(*) FROM aa.level_runs WHERE player_id=%s) AS runs_total
             FROM activity WHERE player_id=%s""", (student_id, student_id)).fetchone()

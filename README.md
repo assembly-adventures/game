@@ -94,7 +94,7 @@ setup, tests, environment variables, code map, and contribution workflow.
 | Guide | Use it for |
 | --- | --- |
 | [Developer onboarding](Docs/development.md) | Local setup, architecture, testing, and common changes |
-| [Deployment and operations](infra/README.md) | Exporting, CloudApps login, migrations, backups, and namespace moves |
+| [Deployment and operations](infra/README.md) | Installing and logging into `oc` (the OpenShift terminal), exporting, deploying, staff access, migrations, backups, and namespace moves |
 | [Gameplay API](Docs/gameplay-api.md) | Authentication, answer formats, retries, and error responses |
 | [Database schema](Docs/schema.md) | Tables, snapshots, question authoring, and migration rules |
 | [Classroom features](Docs/classroom-features.md) | Staff statistics/access, settings, and weekly standings |

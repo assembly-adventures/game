@@ -68,8 +68,15 @@ the application pods to load it; the exact commands are in
 - Overview shows sign-ins, completed runs, attempts, and completion among starters.
 - Level details show question participation, first-encounter and eventual success,
   median attempts to first solve, and recorded mistakes.
-- Question details show common submitted answers and individual progress.
+- Question details show the question's code, the most common answers marked
+  correct or incorrect, and individual progress.
 - The searchable student directory opens run progress and recent answer history.
+
+Answers appear as students saw them: option text, Level 1 instructions, Level 2
+program lines, or Level 3 moves (`Move 2: …`). Recorded option IDs are random in
+every run, so the server reads each answer through its run's snapshot and counts
+identical answers together across runs. Answers it cannot read, such as those
+from retired rooms, appear as recorded JSON.
 
 First-encounter success uses each player's earliest recorded attempt per question,
 not the first attempt in every replay. A level's sample size counts student–question

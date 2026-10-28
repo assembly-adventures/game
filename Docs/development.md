@@ -12,7 +12,7 @@ root. See [deployment operations](../infra/README.md) for the hosted environment
 | Python 3.12 with venv | FastAPI server and tests; matches the production image |
 | PostgreSQL 16, or Docker | Separate local database |
 | Chrome and optional Python `playwright` package | Browser startup check |
-| OpenShift `oc` CLI and namespace access | CloudApps operations only |
+| OpenShift `oc` CLI ([setup](../infra/README.md#openshift-terminal-setup)) and namespace access | CloudApps operations only |
 
 Opening `project.godot` imports the game. Its starting scene is `start_page.tscn`.
 The editor project includes Godot MCP tooling, but no MCP client is required for
@@ -233,7 +233,8 @@ access-controlled destination. There is no scheduled backup job in this repo.
 
 | Symptom | Check |
 | --- | --- |
-| `You must be logged in` from `oc` | Website login does not log in the CLI; run the console's copied login command locally |
+| `You must be logged in` from `oc` | Website login does not log in the CLI; [copy a new login command](../infra/README.md#openshift-terminal-setup) |
+| macOS won't open `oc` ("could not verify") | Clear its download flag: `xattr -d com.apple.quarantine /usr/local/bin/oc` |
 | CloudApps API times out | Check required UNC network/VPN access before changing manifests |
 | Browser callback starts `https://https//` | Keep CSXL's callback parameter scheme-free; keep `APP_ORIGIN` as HTTPS |
 | Loading bar fills and stalls | Re-export with the matching non-threaded template; inspect Chrome Console without sharing tokens |

@@ -7,10 +7,14 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+from psycopg.types.json import Jsonb
+
 from . import test_gameplay
+from .call_stack import moments
 from .database import connect
 from .gameplay import learning_event, register_player
-from .reporting import weekly_window
+from .grading import snapshot
+from .reporting import answer_text, weekly_window
 from .scoring import stars_for
 
 
@@ -32,6 +36,41 @@ class ScoringTests(unittest.TestCase):
         monday = sunday + timedelta(seconds=1)
         self.assertEqual(weekly_window(now=sunday)[1], weekly_window(now=monday)[0])
         self.assertEqual(weekly_window(-1, monday), weekly_window(now=sunday))
+
+
+class AnswerTextTests(unittest.TestCase):
+    WALK = {"kind": "walk", "code": [{"line": "main:"}, {"moment": "call", "ask": "Call triple", "options": [
+        {"label": "jal ra, triple", "lines": ["jal ra, triple"], "good": True},
+        {"label": "j triple", "lines": ["j triple"], "good": False}]}]}
+
+    def test_answers_read_as_students_saw_them(self):
+        options = {"multi_select": True, "options": [{"id": "f3", "text": "Stores the value 12 in x5"},
+                                                     {"id": "9a", "text": "Adds 12 to the current value of x5"}]}
+        buttons = [{"op": "addi", "rd": 5, "rs1": 5, "imm": -1}, {"op": "add", "rd": 10, "rs1": 10, "rs2": 5},
+                   {"op": "andi", "rd": 5, "rs1": 0, "imm": 15}]
+        cases = [
+            ("multiple_choice", options, {"selected_option_ids": ["f3", "9a"]},
+             ["Adds 12 to the current value of x5", "Stores the value 12 in x5"]),
+            ("drag_and_drop", {"tiles": [{"id": "a", "text": "loop:"}, {"id": "b", "text": "addi t0, t0, 1"}]},
+             {"order": ["b", "a"]}, ["1. addi t0, t0, 1", "2. loop:"]),
+            ("matching", {"rows": [{"id": "r", "text": "lw"}], "choices": [{"id": "c", "text": "Loads a word"}]},
+             {"pairs": {"r": "c"}}, ["lw → Loads a word"]),
+            ("puzzle", {"kind": "moves", "buttons": buttons}, {"moves": [2, 0, 1]},
+             ["andi t0, x0, 0x0F", "addi t0, t0, -1", "add a0, a0, t0"]),
+            ("puzzle", {"kind": "maze"}, {"program": ["loop:", "lw t0, 0(a0)"]}, ["loop:", "lw t0, 0(a0)"]),
+            ("puzzle", {"kind": "code"}, {"blanks": ["slli t3, t2, 2"]}, ["Blank 1: slli t3, t2, 2"]),
+            ("puzzle", self.WALK, {"choices": [1]}, ["Move 1: j triple"]),
+        ]
+        for question_type, payload, response, expected in cases:
+            with self.subTest(question_type=question_type, response=response):
+                self.assertEqual(answer_text("attempt", question_type, payload, response), expected)
+        self.assertEqual(answer_text("walk_choice", "puzzle", self.WALK, {"moment": 0, "choice": 1}),
+                         ["Move 1: j triple"])
+
+    def test_unreadable_answers_are_shown_as_recorded(self):
+        self.assertEqual(answer_text("attempt", "puzzle", {"kind": "frame"}, {"frame": ["ra"]}), ['{"frame": ["ra"]}'])
+        self.assertEqual(answer_text("attempt", "multiple_choice", {"options": []}, {"selected_option_ids": ["gone"]}),
+                         ['{"selected_option_ids": ["gone"]}'])
 
 
 @unittest.skipUnless(os.environ.get("TEST_DATABASE_URL"), "Set TEST_DATABASE_URL to an isolated test database")
@@ -217,7 +256,11 @@ class ReportingTests(unittest.TestCase):
         self.finish(run)
         self.finish(self.start(3))
         with patch.dict(os.environ, {"AA_STAFF_ONYENS": self.onyen}):
-            stats = self.client.get(f"/api/admin/questions/{question['id']}").json()["stats"]
+            detail = self.client.get(f"/api/admin/questions/{question['id']}").json()
+            wrong = moments(question["payload"])[0]["options"][1]["label"]
+            self.assertIn({"answer": [f"Move 1: {wrong}"], "is_correct": False, "kind": "walk_choice", "count": 1},
+                          detail["common_answers"])
+            stats = detail["stats"]
             self.assertEqual((stats["distinct_players"], stats["first_try_sample_size"], stats["first_try_correct_rate"]), (1, 1, 0))
             self.assertEqual((stats["total_attempts"], stats["median_attempts"]), (3, 2))
             self.sign_in(self.other)
@@ -225,6 +268,34 @@ class ReportingTests(unittest.TestCase):
             self.sign_in(self.onyen)
             stats = self.client.get(f"/api/admin/questions/{question['id']}").json()["stats"]
             self.assertEqual((stats["distinct_players"], stats["first_try_sample_size"]), (2, 1))
+
+    def test_common_answers_count_option_text_across_runs(self):
+        # Every run's snapshot gives the options new random IDs; the same pick must still count once.
+        right, wrong = "Stores the value 12 in x5", "Adds 12 to the current value of x5"
+        with connect() as conn:
+            question = conn.execute("""SELECT * FROM aa.questions WHERE level_id=1
+                AND type='multiple_choice' AND code_snippet='addi x5, x0, 12'""").fetchone()
+            player = conn.execute("SELECT id FROM aa.players WHERE onyen=%s", (self.onyen,)).fetchone()["id"]
+            for picks in ([wrong, right], [wrong]):
+                public, solution = snapshot(question)
+                run_id = conn.execute("""INSERT INTO aa.level_runs (player_id,level_id,outcome,ended_at)
+                    VALUES (%s,1,'abandoned',now()) RETURNING id""", (player,)).fetchone()["id"]
+                conn.execute("""INSERT INTO aa.run_questions (run_id,question_id,ordinal,public_question,solution,points)
+                    VALUES (%s,%s,1,%s,%s,1)""", (run_id, question["id"], Jsonb(public), Jsonb(solution)))
+                ids = {option["text"]: option["id"] for option in public["payload"]["options"]}
+                for number, text in enumerate(picks, 1):
+                    conn.execute("""INSERT INTO aa.question_attempts
+                        (run_id,player_id,question_id,attempt_no,response,is_correct) VALUES (%s,%s,%s,%s,%s,%s)""",
+                        (run_id, player, question["id"], number, Jsonb({"selected_option_ids": [ids[text]]}), text == right))
+        with patch.dict(os.environ, {"AA_STAFF_ONYENS": self.onyen}):
+            detail = self.client.get(f"/api/admin/questions/{question['id']}").json()
+            self.assertEqual(detail["question"]["code_snippet"], "addi x5, x0, 12")
+            self.assertEqual(detail["common_answers"], [
+                {"answer": [wrong], "is_correct": False, "kind": "attempt", "count": 2},
+                {"answer": [right], "is_correct": True, "kind": "attempt", "count": 1}])
+            attempts = self.client.get(f"/api/admin/students/{player}").json()["attempts"]
+            self.assertEqual(sorted(attempt["answer"] for attempt in attempts), [[wrong], [wrong], [right]])
+            self.assertFalse(any("response" in attempt or "payload" in attempt for attempt in attempts))
 
 
 if __name__ == "__main__":
