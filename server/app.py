@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 import httpx
@@ -16,6 +16,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from .api import router
 from .gameplay import register_player
+from .reporting import require_staff
 
 SESSION_COOKIE = "__Host-aa-session"
 LOGIN_COOKIE = "__Host-aa-login"
@@ -114,6 +115,19 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(router(authenticate, origin))
+
+    @app.api_route("/admin", methods=["GET", "HEAD"])
+    def admin(request: Request) -> Response:
+        # A hidden navigation link is only a convenience. Authorize the page itself,
+        # and the reporting API independently, using the verified session identity.
+        require_staff(authenticate(request))
+        response = HTMLResponse(Path(__file__).with_name("admin.html").read_text())
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+        return response
 
     @app.api_route("/{path:path}", methods=["GET", "HEAD"])
     async def game(request: Request, path: str) -> Response:

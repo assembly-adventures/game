@@ -11,7 +11,7 @@ The license text ships beside each font (`OFL.txt`) and is bundled into the web 
 | Font | Used for | Source |
 | --- | --- | --- |
 | Chakra Petch (Regular, SemiBold, Bold) | Interface text and titles | [Google Fonts](https://fonts.google.com/specimen/Chakra+Petch), © 2018 The Chakra Petch Project Authors |
-| IBM Plex Mono (Regular, SemiBold) | Numbers and assembly | [Google Fonts](https://fonts.google.com/specimen/IBM+Plex+Mono), © 2017 IBM Corp. |
+| IBM Plex Mono (SemiBold) | Numbers and assembly | [Google Fonts](https://fonts.google.com/specimen/IBM+Plex+Mono), © 2017 IBM Corp. |
 | Noto Sans Symbols 2 (subset) | Fallback for ★ ☆ ✓ ✔ ✗ ✘ ♥ ⚡, which the other fonts lack | [Google Fonts](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols+2), © Google LLC; subset with `pyftsubset` to keep the web build small |
 
 ## Sound effects (CC0, by Kenney — kenney.nl)

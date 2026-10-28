@@ -53,7 +53,7 @@ use `docker start aa-dev-db` instead of creating the container again. Use
 export DATABASE_URL='postgresql://aa_dev:local-development-only@127.0.0.1:55433/assembly_adventures_dev'
 python -m server.database
 export TEST_DATABASE_URL="$DATABASE_URL"
-python -m unittest server.test_app server.test_puzzles server.test_call_stack server.test_gameplay -v
+python -m unittest server.test_app server.test_puzzles server.test_call_stack server.test_gameplay server.test_reporting server.test_admin_page -v
 ```
 
 The runner applies the SQL files in filename order, including the two
@@ -101,6 +101,7 @@ and HTTPS at the browser-facing origin. CloudApps terminates TLS at its Route.
 | --- | --- |
 | `APP_ORIGIN` | Web server: full HTTPS origin, no path or trailing callback; e.g. `https://assembly-adventures-teddyt.apps.cloudapps.unc.edu` |
 | `SESSION_SECRET` | Web server: random signing key of at least 32 characters; supplied through a CloudApps Secret |
+| `AA_STAFF_ONYENS` | Optional comma-separated TA/professor Onyens; empty denies all staff access. See [classroom features](classroom-features.md). |
 | `STATIC_DIR` | Game files; defaults to `build/web`, set to `/app/static` in the image |
 | `DATABASE_URL` | Local database connection; takes precedence over the individual DB variables |
 | `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Database connection when `DATABASE_URL` is absent; CloudApps uses these |
@@ -122,13 +123,15 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `levels/level_1/puzzle_room.gd`, `levels/level_2/maze_room.gd`, `levels/level_2/code_room.gd` | One gate's puzzle for each payload kind (`moves`, `maze`, `code`), with a client copy of the grader for guest mode |
 | `levels/level_3/walk_room.gd` | Level 3's walkthroughs (`walk`): Play, Step, and Back through a program on the tower, a caption per line, the registers it watches, and the student's moves, dragged from a bank of code blocks into the gold slot in the listing (a wrong one plays out and rewinds); built on `tower_room.gd` |
 | `levels/level_3/call_machine.gd`, `tower_visuals.gd` | Level 3's machine (a client copy of `server/call_stack.py`, with a trace for the walkthroughs and stops at moves not made yet) and its drawing: the listing (whose slot for a waiting move takes the dropped block) and the Call Stack Tower |
-| `levels/level_3/frame_room.gd`, `elevator_room.gd`, `lawyer_room.gd` | The earlier Level 3 kinds (`frame`, `elevator`, `lawyer`), kept for runs started before the walkthroughs |
 | `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading the assembly lines Levels 2 and 3 write; ABI register names and their x-names |
 | `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
+| `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay and weekly per-level standings |
+| `ui/learning_log.gd` | Durable hint/decision event queue, retried with stable request IDs |
 | `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
 | `server/app.py` | CSXL callback verification, signed session, protected static files |
 | `server/api.py` | Request validation, authenticated endpoints, POST origin/header checks |
 | `server/gameplay.py` | Transactions, owned runs, attempt history, profile, badge awards |
+| `server/reporting.py`, `server/scoring.py`, `server/admin.html` | Staff statistics/access, weekly rankings, server-computed stars, and staff dashboard |
 | `server/grading.py` | Public question snapshots and private grading solutions |
 | `server/puzzles.py`, `server/call_stack.py` | Puzzle grading by replay: Levels 1 and 2, and Level 3's machine and room kinds |
 | `server/database.py` | Connections and transactional migration ledger |
@@ -186,15 +189,14 @@ and `build/browser-smoke.png`. The smoke test uses locally installed Chrome.
 ### Questions or schema
 
 Add a new, uniquely numbered SQL migration after the existing files, for example
-`db/migrations/0005_describe_change.sql`. Never edit applied files or regenerate
+`db/migrations/0014_describe_change.sql`. Never edit applied files such as
 `0003_questions.sql`: checksum validation will reject them. Use the migration
 runner for fresh databases as well as upgrades so both paths have the same ledger.
 
 Prefer reviewed data migrations for question changes so local and deployed
 content stay consistent. Retire substantive replacements and insert new rows;
 keep historical attempts. Existing runs retain their snapshots, so only a new
-run sees an edited question. There is no authoring/admin UI yet. The importer
-is historical tooling; `--check` validates its original JSON without rewriting SQL.
+run sees an edited question. The staff dashboard is read-only; there is no question-authoring UI.
 
 Test the change against the previous local schema with an existing unfinished
 run, as well as a fresh database when changing bootstrap behavior. Migration

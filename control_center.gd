@@ -6,6 +6,7 @@ extends Control
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
 const Characters := preload("res://ui/characters.gd")
 const Style := preload("res://ui/style.gd")
+const IconButton := preload("res://ui/icon_button.gd")
 const GRAYSCALE := preload("res://badge_grayscale.gdshader")
 
 ## Each level's place on the board (as fractions of the board), badge, and scene. The robot
@@ -30,7 +31,8 @@ var chips := {}
 var status_label: Label
 var retry_button: Button
 var guest_button: Button
-var sound_button: Button
+var leaderboard_button: Button
+var staff_button: Button
 var progress_bar: ProgressBar
 var badge_count: Label
 
@@ -55,10 +57,12 @@ func _ready() -> void:
 	layout.add_child(board)
 	layout.add_child(_footer())
 	PlayerData.profile_changed.connect(_update_progress)
+	Settings.changed.connect(_update_actions)
 	_load_profile()
 
 func _header() -> Control:
 	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 18)
 	var titles := VBoxContainer.new()
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.add_theme_constant_override("separation", 0)
@@ -69,6 +73,7 @@ func _header() -> Control:
 	titles.add_child(title)
 	var subtitle := Label.new()
 	subtitle.text = "The Chip Chomper corrupted the processor. Fix it one chip at a time."
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	subtitle.add_theme_font_size_override("font_size", 15)
 	subtitle.add_theme_color_override("font_color", Color(Style.TEXT, 0.6))
 	titles.add_child(subtitle)
@@ -83,6 +88,16 @@ func _header() -> Control:
 	progress_bar.custom_minimum_size = Vector2(0, 16)
 	progress_bar.show_percentage = false
 	progress.add_child(progress_bar)
+	var actions := HBoxContainer.new()
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	actions.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	actions.add_theme_constant_override("separation", 8)
+	header.add_child(actions)
+	leaderboard_button = IconButton.new("leaderboard")
+	leaderboard_button.pressed.connect(func(): get_tree().change_scene_to_file("res://leaderboard.tscn"))
+	leaderboard_button.visible = not Settings.hide_leaderboard
+	actions.add_child(leaderboard_button)
+	actions.add_child(Settings.make_button())
 	return header
 
 func _footer() -> Control:
@@ -105,20 +120,17 @@ func _footer() -> Control:
 		PlayerData.start_guest()
 		_load_profile())
 	footer.add_child(guest_button)
-	var fullscreen_button := Button.new()
-	fullscreen_button.text = "Full screen (F11)"
-	fullscreen_button.pressed.connect(PlayerData.toggle_fullscreen)
-	footer.add_child(fullscreen_button)
-	sound_button = Button.new()
-	sound_button.pressed.connect(func():
-		Audio.set_enabled(not Audio.enabled)
-		_update_sound_label())
-	footer.add_child(sound_button)
-	_update_sound_label()
+	staff_button = Button.new()
+	staff_button.text = "Staff dashboard"
+	staff_button.tooltip_text = "Class statistics and student progress (opens a browser tab)"
+	staff_button.pressed.connect(func(): OS.shell_open(PlayerData.api_base + "/admin"))
+	staff_button.hide()
+	footer.add_child(staff_button)
 	return footer
 
-func _update_sound_label() -> void:
-	sound_button.text = "Sound: on" if Audio.enabled else "Sound: off"
+func _update_actions() -> void:
+	leaderboard_button.visible = not Settings.hide_leaderboard
+	staff_button.visible = PlayerData.is_staff and not PlayerData.guest
 
 func _load_profile() -> void:
 	retry_button.hide()
@@ -145,6 +157,7 @@ func _load_profile() -> void:
 	_update_progress()
 
 func _update_progress() -> void:
+	_update_actions()
 	progress_bar.value = PlayerData.get_progress_ratio() * 100.0
 	var earned := PlayerData.earned_badges.size()
 	badge_count.text = "%d badge%s earned" % [earned, "" if earned == 1 else "s"]

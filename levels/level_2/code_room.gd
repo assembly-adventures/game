@@ -7,6 +7,7 @@ extends RefCounted
 ## server/puzzles.py; the server replays the program and has the final say.
 
 signal attempt
+signal learning_event(kind: String, detail: Dictionary)
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const MazeVisuals := preload("res://levels/level_2/maze_visuals.gd")
@@ -175,6 +176,7 @@ func show_hint() -> void:
 	if hint.is_empty() or hint_used:
 		return
 	hint_used = true
+	learning_event.emit("hint", {})
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
 	hint_button.modulate = Color.WHITE
@@ -219,7 +221,7 @@ func run_tests() -> void:
 		var result := run(payload, choices, tests[k])
 		_show_start(k)
 		cards.running = k
-		await view.get_tree().create_timer(0.35).timeout
+		await view.get_tree().create_timer(0.35, false).timeout
 		if not is_instance_valid(view):
 			return
 		await _play(result)
@@ -236,7 +238,7 @@ func run_tests() -> void:
 				headline = "Test %d crashed!" % (k + 1) if not str(result.fault).is_empty() else "Test %d failed!" % (k + 1)
 			if str(result.fault).is_empty():
 				view.flash_message("TEST %d FAILED" % (k + 1), Style.RED)
-		await view.get_tree().create_timer(0.7).timeout
+		await view.get_tree().create_timer(0.7, false).timeout
 		if not is_instance_valid(view):
 			return
 	if passed == tests.size():
@@ -258,7 +260,7 @@ func _play(result: Dictionary) -> void:
 		view.running_row = view.row_of(pc)
 		view.walk_to(pc, duration * 0.4)
 		chips.set_value("pc", pc)
-		await view.get_tree().create_timer(duration * 0.45).timeout
+		await view.get_tree().create_timer(duration * 0.45, false).timeout
 		if not is_instance_valid(view):
 			return
 		if step.get("crash", false):
@@ -274,20 +276,20 @@ func _play(result: Dictionary) -> void:
 		if int(step.next) != pc + 4:
 			view.jump(pc, int(step.next), Style.PURPLE if str(step.op) in BRANCHES else Style.CYAN)
 		Audio.play("press", -16.0, 0.25)
-		await view.get_tree().create_timer(duration * 0.55).timeout
+		await view.get_tree().create_timer(duration * 0.55, false).timeout
 		if not is_instance_valid(view):
 			return
 	view.running_row = -1
 	if str(result.fault).is_empty():
 		chips.set_value("pc", int(result.pc))
 		view.walk_to(int(result.pc), 0.3)
-		await view.get_tree().create_timer(0.35).timeout
+		await view.get_tree().create_timer(0.35, false).timeout
 		return
 	if result.fault == "code":
 		chips.set_value("pc", int(result.at))
 	view.fault(fault_text(result))
 	Audio.play("overflow", -4.0)
-	await view.get_tree().create_timer(1.6).timeout
+	await view.get_tree().create_timer(1.6, false).timeout
 
 ## Shows where test `k` starts: its registers, fresh memory, and the robot on the first instruction.
 func _show_start(k: int, glide: bool = true) -> void:

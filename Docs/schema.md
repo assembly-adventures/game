@@ -8,13 +8,12 @@ the way they are, and the rules the API tier has to follow.
 - Gameplay additions: [`db/migrations/0004_gameplay.sql`](../db/migrations/0004_gameplay.sql)
 - Local setup: [developer guide](development.md)
 - Seed data: [`db/seed/0002_levels_badges.sql`](../db/seed/0002_levels_badges.sql)
-- One-time question bootstrap: [`db/seed/import_questions.py`](../db/seed/import_questions.py)
+- One-time question bootstrap: [`db/seed/0003_questions.sql`](../db/seed/0003_questions.sql)
 
-**The database is the source of truth for questions.** `questions.json` is a
-temporary file that predates it and is kept only as reference context; the
-importer exists to carry its 18 questions across once. After that bootstrap,
-questions are authored in the database, and both `questions.json` and the
-importer can be retired.
+**The database is the source of truth for questions.** The original
+`questions.json` and its one-time importer carried 18 questions into
+`0003_questions.sql`; later migrations retired all of them, and both files have
+been removed.
 
 ## Why this exists
 
@@ -65,8 +64,8 @@ its own schema.
 
 Two rules are non-negotiable, because the browser is untrusted:
 
-1. **Never send correct answers to the client.** `questions.json` ships answers
-   inline, which was harmless when nothing was recorded. Now that answers are
+1. **Never send correct answers to the client.** The original `questions.json`
+   shipped answers inline, which was harmless when nothing was recorded. Now that answers are
    graded and badged, the endpoint that serves a question must strip
    `correct_option_ids`, `correct_order`, and each pair's `right` value.
 2. **Grade and award server-side.** The client reports what the player did; the
@@ -94,15 +93,23 @@ so analytics queries never carry an identifier.
 > PID is retained for the requested roster integration and never placed in the
 > browser session cookie or returned by the gameplay API.
 
-**Classrooms are deliberately not modelled.** `role` is the only hook. When an
-instructor view is needed, it becomes `courses` and `enrollments` tables plus a
-query — nothing already built has to change.
+**Classrooms are not modelled.** Reporting uses all signed-in players. Staff
+access is controlled by `AA_STAFF_ONYENS`, independently of the legacy `role`
+column. Migration `0013_reporting_leaderboard.sql` adds `leaderboard_visible`
+(default true); hiding public rankings never hides progress from staff.
+
+That migration also adds `scoring_version`, `stars_total`, and `mistakes_total`
+to runs, plus `aa.question_events` for validated hints and walkthrough decisions.
+Events have stable request IDs unique within a run and refer to an owned frozen
+question. Preexisting runs remain version 0 and unranked. New clients explicitly
+request version 1. Weekly rankings read completion timestamps and never reset
+the underlying history. See [classroom features](classroom-features.md).
 
 ### `aa.levels`
 
 | Column | Notes |
 | --- | --- |
-| `slug` | `level_1` … `level_challenge`, matching the question bank keys |
+| `slug` | `level_1` … `level_challenge` |
 | `scene_path` | `res://levels/…`, replacing the hardcoded routing table |
 | `completion_rule` | `jsonb` — what it takes to pass |
 | `draw` | `jsonb`, optional — how a run picks its questions from the level's pools |
@@ -162,7 +169,7 @@ A prompt's first line is the gate's goal, shown large; anything after the first
 goal, then the one idea the gate turns on); a prompt with no `\n` is all goal.
 
 **Every payload element carries a stable id.** This is the most important
-change from `questions.json`, which grades by comparing *option text*. Text
+change from the original `questions.json`, which graded by comparing *option text*. Text
 comparison breaks on any copy-edit and makes "which wrong answer do students
 pick" unanswerable.
 
@@ -309,14 +316,9 @@ finale, `chomper` eats a stack word every `every` instructions from instruction
 works still finishes first, and an option marked `loose` (good, but bigger than
 it needs to be) costs a star.
 
-Runs started before `0012` keep snapshots of three earlier kinds, which are
-still graded: Frame Builder (`frame`: the answer lists `blocks` from `sp+0` up,
-at most `max_slots`, written as a prologue and epilogue at the code's `prologue`
-and `epilogue` marks; `par` is the smallest working frame), Recursion Elevator
-(`elevator`: one whole number per `[floor, field]` of `blanks` on the chain of
-calls to `function`), and Code Lawyer (`lawyer`: one of `verdict.lines` and
-`verdict.clause`; snapshots leave `verdict` out). `server/test_call_stack.py`
-checks every walkthrough: its good moves keep the contract, every wrong move
+`0012` retired the earlier Frame Builder (`frame`), Recursion Elevator
+(`elevator`), and Code Lawyer (`lawyer`) rooms; the game and server no longer
+support those kinds. `server/test_call_stack.py` checks every walkthrough: its good moves keep the contract, every wrong move
 breaks it, its moments stand at their own lines, and the finale lets every
 working frame win.
 
@@ -457,36 +459,12 @@ checksums. It skips applied files and rejects edits to them. `0001` needs the
 `pgcrypto` and `citext` extensions; a managed database may require an administrator
 to enable these first. See [local setup](development.md#local-server-and-database-tests).
 
-Do not run `0003_questions.sql` manually or regenerate it for content updates:
+Do not run `0003_questions.sql` manually or edit it for content updates:
 it is a one-time bootstrap with deletion logic. Add new reviewed SQL migrations
 for schema and question changes. Retire replaced questions instead of deleting
 history. Keep applied scripts in version control so fresh installations and
 existing deployments follow the same sequence.
 
-There is no question-authoring UI or reporting endpoint yet. The database role
-column does not itself grant instructor/admin API functionality.
-
-## Known data issues in `questions.json`
-
-The bootstrap importer fixes these automatically:
-
-- The `"drap-and-drop"` key is misspelled in both `questions.json` and
-  `questionBankDocs.md`. It maps to the `drag_and_drop` type.
-- Two level 1 options have a stray trailing `]`
-  (`"x6 is changed to 0]"`, `"…at address x5 + 12]"`). Both are distractors, so
-  stripping them does not affect answer matching.
-- `"loop: "` in a drag-and-drop answer has a trailing space, which is stripped.
-
-These need **manual attention** and are reported as warnings by the importer:
-
-- **Four questions have code interleaved with prose**, e.g. `"Suppose x5 and x6
-  both contain 7.\nbne x5, x6, different\nWhat happens?"`. The importer leaves
-  these in `prompt` with `code_snippet` NULL rather than guessing a split that
-  would reorder the question. Splitting them properly needs a second prose field
-  (something like `prompt_after_code`) or an edit to the question text.
-
-Resolved in the current implementation:
-
-- The first Level 1 question now has `addi x5, x0, 12` in `code_snippet`, added
-  by `0004_gameplay.sql`. The historical JSON still lacks that instruction.
-- Level 1 no longer uses its old hardcoded question; it renders API snapshots.
+There is no question-authoring UI. Staff reporting is the read-only dashboard in
+[classroom features](classroom-features.md); access comes from `AA_STAFF_ONYENS`,
+not the database `role` column.

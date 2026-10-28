@@ -15,6 +15,7 @@ mkdir -p "$context_dir/infra" "$context_dir/build/web" "$context_dir/server"
 cp infra/Dockerfile "$context_dir/infra/"
 # Every server module (grading imports puzzles.py and call_stack.py), but not the tests.
 cp server/requirements.txt "$context_dir/server/"
+cp server/admin.html "$context_dir/server/"
 for module in server/*.py; do
   case "$module" in
     server/test_*) ;;

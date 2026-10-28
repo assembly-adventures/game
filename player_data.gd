@@ -19,6 +19,10 @@ var levels: Array = []
 var progress_ratio: float = 0.0
 var api_base: String = ""
 var last_error: String = ""
+var onyen := ""
+var is_staff := false
+var leaderboard_visible := true
+var profile_loaded := false
 # Guest mode answers API calls in memory: nothing reaches the server and a reload starts over.
 var guest: bool = false
 # Per level ID: every room it can draw from (with its draw rule, if any), the rooms of its current
@@ -31,6 +35,7 @@ var guest_run_done: Dictionary = {}
 var guest_badges: Array = []
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	if OS.has_feature("web"):
 		api_base = str(JavaScriptBridge.eval("window.location.origin"))
 
@@ -88,6 +93,10 @@ func refresh_profile() -> bool:
 	return true
 
 func apply_profile(profile: Dictionary) -> void:
+	onyen = str(profile.get("onyen", onyen))
+	is_staff = bool(profile.get("is_staff", is_staff)) and not guest
+	leaderboard_visible = bool(profile.get("leaderboard_visible", leaderboard_visible))
+	profile_loaded = true
 	earned_badges.clear()
 	for badge in profile.get("badges", []):
 		earned_badges.append(str(badge.slug))
@@ -103,6 +112,10 @@ func new_request_id() -> String:
 
 func start_guest() -> void:
 	guest = true
+	onyen = ""
+	is_staff = false
+	leaderboard_visible = false
+	profile_loaded = false
 	guest_badges.clear()
 	for level in GUEST_LEVELS:
 		var bank = JSON.parse_string(FileAccess.get_file_as_string(GUEST_LEVELS[level].rooms))
@@ -192,7 +205,7 @@ func _guest_attempt(level: int, index: int, response: Dictionary) -> Dictionary:
 			correct = MazeRoom.grade(payload, response)
 		"code":
 			correct = CodeRoom.grade(payload, response)
-		"walk", "frame", "elevator", "lawyer":
+		"walk":
 			correct = CallMachine.grade(payload, response)
 		_:
 			correct = PuzzleRoom.grade(payload, response)

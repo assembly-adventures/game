@@ -9,7 +9,6 @@ from fastapi import HTTPException
 
 from server.call_stack import (CHOMPER, CODE_BASE, JUNK, STACK_TOP, assemble, audit, frame_lines, junk, moments,
                                restored, run, setup)
-from server.grading import snapshot
 from server.puzzles import MASK, execute, grade_puzzle, parse_line, reg
 
 BANK = json.loads((Path(__file__).parents[1] / "levels/level_3/guest_rooms.json").read_text())
@@ -19,30 +18,6 @@ ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
 # the option picked at each moment.
 SOLUTIONS = {1: {"choices": [0]}, 2: {"choices": [0]}, 3: {"choices": [1]}, 4: {"choices": [0]},
              5: {"choices": [0]}, 6: {"choices": [0]}, 7: {"choices": [0]}, 8: {"choices": [0]}}
-# Runs started before the walkthroughs keep snapshots of three earlier kinds of room (0009), which
-# are still graded: one room of each, as 0009 inserted it.
-EARLIER = {
-    "frame": {"kind": "frame", "entry": "plus1",
-              "code": [{"label": "plus1"}, {"prologue": True}, {"line": "jal ra, triple"}, {"line": "addi a0, a0, 1"},
-                       {"epilogue": True}, {"line": "jr ra"}, {"label": "triple"}, {"line": "slli t0, a0, 1"},
-                       {"line": "add a0, a0, t0"}, {"line": "jr ra"}],
-              "blocks": ["ra", "s0", "a0"], "max_slots": 3, "par": 1,
-              "calls": [{"args": {"a0": 4}, "expect": 13}, {"args": {"a0": -2}, "expect": -5},
-                        {"args": {"a0": 7}, "expect": 22}]},
-    "elevator": {"kind": "elevator", "entry": "sqr", "function": "sqr",
-                 "code": [{"label": "sqr"}] + [{"line": line} for line in (
-                     "addi sp, sp, -8", "sw ra, 4(sp)", "sw s0, 0(sp)", "slti t0, a0, 2", "bne t0, x0, done",
-                     "add s0, x0, a0", "addi a0, a0, -1", "jal ra, sqr", "add a0, a0, s0", "add a0, a0, s0",
-                     "addi a0, a0, -1")] + [{"label": "done"}] + [{"line": line} for line in (
-                     "lw s0, 0(sp)", "lw ra, 4(sp)", "addi sp, sp, 8", "jalr x0, 0(ra)")],
-                 "calls": [{"args": {"a0": 3}, "expect": 9}], "params": ["a0"], "columns": ["ret"], "floors": 3,
-                 "blanks": [[0, "ret"], [1, "ret"], [2, "ret"]]},
-    "lawyer": {"kind": "lawyer", "entry": "double",
-               "code": [{"label": "double"}, {"line": "add s1, a0, a0"}, {"line": "add a0, s1, x0"}, {"line": "ret"}],
-               "calls": [{"args": {"a0": 5}, "expect": 10}],
-               "clauses": ["caller-save", "callee-save", "save-ra", "restore-sp"],
-               "verdict": {"lines": [256], "clause": "callee-save"}},
-}
 
 
 def good_choices(payload):
@@ -55,8 +30,8 @@ def passes(payload, choices):
 
 
 def machine(lines, calls, entry="f", **extra):
-    payload = {"kind": "frame", "entry": entry, "code": [{"label": entry}] + [{"line": line} for line in lines],
-               "calls": calls, "blocks": [], "max_slots": 0}
+    payload = {"kind": "walk", "entry": entry, "code": [{"label": entry}] + [{"line": line} for line in lines],
+               "calls": calls}
     payload.update(extra)
     return payload
 
@@ -159,31 +134,6 @@ class GradingTests(unittest.TestCase):
             with self.subTest(response=response), self.assertRaises(HTTPException) as caught:
                 grade_puzzle(ROOM[1], response)
             self.assertEqual(caught.exception.status_code, 422)
-
-    def test_runs_started_earlier_still_grade(self):
-        frame, elevator, lawyer = EARLIER["frame"], EARLIER["elevator"], EARLIER["lawyer"]
-        self.assertTrue(grade_puzzle(frame, {"frame": ["ra"]}))
-        self.assertFalse(grade_puzzle(frame, {"frame": []}))  # ra lost: plus1 never returns.
-        self.assertTrue(grade_puzzle(elevator, {"values": [9, 4, 1]}))
-        self.assertFalse(grade_puzzle(elevator, {"values": [9, 4, 2]}))
-        self.assertTrue(grade_puzzle(lawyer, {"line": 0x100, "clause": "callee-save"}))
-        self.assertFalse(grade_puzzle(lawyer, {"line": 0x100, "clause": "caller-save"}))  # Right line, wrong rule.
-        self.assertFalse(grade_puzzle(lawyer, {"line": 0x104, "clause": "callee-save"}))  # Wrong line.
-        for payload, response in ((frame, {"frame": ["sp"]}), (frame, {"frame": ["ra", "ra"]}),
-                                  (elevator, {"values": [9, 4]}), (elevator, {"values": [9, 4, "1"]}),
-                                  (lawyer, {"line": 0x102, "clause": "callee-save"}),
-                                  (lawyer, {"line": 0x100, "clause": "be-nice"})):
-            with self.subTest(response=response), self.assertRaises(HTTPException) as caught:
-                grade_puzzle(payload, response)
-            self.assertEqual(caught.exception.status_code, 422)
-
-    def test_snapshots_keep_a_verdict_private(self):
-        question = {"id": "q", "type": "puzzle", "prompt": "p", "code_snippet": None, "hint": None,
-                    "payload": EARLIER["lawyer"]}
-        public, solution = snapshot(question)
-        self.assertNotIn("verdict", public["payload"])
-        self.assertEqual(solution["puzzle"]["verdict"], EARLIER["lawyer"]["verdict"])
-        self.assertIn("calls", public["payload"])
 
 
 class RoomDesignTests(unittest.TestCase):

@@ -18,8 +18,6 @@ const STACK_TOP := 0x7FF0
 const JUNK := 0xDEADBEEF
 const STACK_WORDS := 32
 const STEP_LIMIT := 3000
-const FIELDS := ["a0", "a1", "s0", "ra", "ret"]
-const RULES := ["caller-save", "callee-save", "save-ra", "restore-sp"]
 
 ## ra and the s registers are the caller's, so a callee that saves them puts them back. Anything
 ## else it saves (an argument, a temporary) is for its own code to read back.
@@ -47,14 +45,15 @@ static func frame_lines(frame: Array) -> Array:
 static func moments(room: Dictionary) -> Array:
 	return room.code.filter(func(entry): return entry.has("moment"))
 
-## The room's program: its lines from CODE_BASE, 4 bytes apart (with a frame room's prologue and
-## epilogue, or a walkthrough's picked moves, written in), which part each line belongs to ("body",
-## "prologue", "epilogue", or "your move"), the address of each label, where empty parts would go
-## ("slots", for the listing; a move's names its moment), the address where each move not made yet
-## waits ("stops": address to moment), and each line's note, by line.
-static func assemble(room: Dictionary, frame: Array = [], choices: Array = []) -> Dictionary:
+## The room's program: its lines from CODE_BASE, 4 bytes apart (with the walkthrough's picked moves
+## written in), which part each line belongs to ("body", "prologue", "epilogue", or "your move"),
+## the address of each label, where empty parts would go ("slots", for the listing; a move's names
+## its moment), the address where each move not made yet waits ("stops": address to moment), and
+## each line's note, by line.
+static func assemble(room: Dictionary, choices: Array = []) -> Dictionary:
 	var entries := moments(room)
 	var options: Array = []
+	var frame: Array = []
 	for k in range(entries.size()):
 		var pick := int(choices[k]) if k < choices.size() and choices[k] != null else -1
 		options.append(entries[k].options[pick] if pick >= 0 else null)
@@ -76,14 +75,12 @@ static func assemble(room: Dictionary, frame: Array = [], choices: Array = []) -
 				notes[lines.size()] = str(entry.note)
 			lines.append(str(entry.line))
 			parts.append("body")
-		elif entry.get("prologue", false) or entry.get("epilogue", false):
-			var part := "prologue" if entry.get("prologue", false) else "epilogue"
-			var wrote: Array = written[0] if part == "prologue" else written[1]
-			if wrote.is_empty():
-				slots.append({"at": lines.size(), "part": part})
-			for line in wrote:
+		elif entry.get("epilogue", false):
+			if written[1].is_empty():
+				slots.append({"at": lines.size(), "part": "epilogue"})
+			for line in written[1]:
 				lines.append(line)
-				parts.append(part)
+				parts.append("epilogue")
 		elif entry.has("moment"):
 			var option = options[moment]
 			if option == null:
@@ -225,8 +222,8 @@ static func _write(regs: Array, step: Dictionary, rd: int, value: int) -> void:
 ## Every one of the Chomper's calls, checked against the contract: it must return (no crash), with
 ## the expected value in a0 if the call names one, and with s0-s11 and sp as the Chomper set them.
 ## Each row lists what went wrong: "value", a register's name, "sp", or a crash's kind.
-static func audit(room: Dictionary, frame: Array = [], choices: Array = []) -> Array:
-	var built := assemble(room, frame, choices)
+static func audit(room: Dictionary, choices: Array = []) -> Array:
+	var built := assemble(room, choices)
 	var rows: Array = []
 	for index in range(room.calls.size()):
 		var before: Array = setup(room, index).regs
@@ -246,55 +243,18 @@ static func audit(room: Dictionary, frame: Array = [], choices: Array = []) -> A
 		rows.append({"passed": problems.is_empty(), "problems": problems, "state": state, "before": before})
 	return rows
 
-## The calls of an elevator room's function in its one run, outermost first.
-static func chain(room: Dictionary) -> Array:
-	var built := assemble(room)
-	var state := run(room, built.lines, built.labels, 0)
-	return state.calls.filter(func(call): return call.function == str(room.function))
-
-## Mirrors grade_call_stack in server/call_stack.py for guest mode, where the game grades itself.
+## Mirrors grade_walk in server/call_stack.py for guest mode, where the game grades itself.
 ## Malformed answers (the server refuses them) are simply wrong here.
 static func grade(room: Dictionary, response: Dictionary) -> bool:
-	match str(room.kind):
-		"walk":
-			var choices = response.get("choices")
-			var entries := moments(room)
-			if not (choices is Array) or choices.size() != entries.size():
-				return false
-			var picks: Array = []
-			for k in range(choices.size()):
-				var pick = choices[k]
-				if (typeof(pick) != TYPE_INT and typeof(pick) != TYPE_FLOAT) or int(pick) < 0 \
-						or int(pick) >= entries[k].options.size():
-					return false
-				picks.append(int(pick))
-			return audit(room, [], picks).all(func(row): return row.passed)
-		"frame":
-			var frame = response.get("frame")
-			if not (frame is Array) or frame.size() > int(room.max_slots):
-				return false
-			var seen := {}
-			for name in frame:
-				if not (name is String) or name not in room.blocks or seen.has(name):
-					return false
-				seen[name] = true
-			return audit(room, frame).all(func(row): return row.passed)
-		"elevator":
-			var values = response.get("values")
-			if not (values is Array) or values.size() != room.blanks.size():
-				return false
-			var floors := chain(room)
-			for k in range(values.size()):
-				if typeof(values[k]) != TYPE_INT and not (typeof(values[k]) == TYPE_FLOAT and values[k] == floor(values[k])):
-					return false
-				var blank: Array = room.blanks[k]
-				if int(floors[int(blank[0])].get(str(blank[1]), -1)) != int(values[k]) & MASK:
-					return false
-			return true
-		"lawyer":
-			var line = response.get("line")
-			var rule = response.get("clause")
-			if (typeof(line) != TYPE_INT and typeof(line) != TYPE_FLOAT) or not (rule is String):
-				return false
-			return int(line) in room.verdict.lines.map(func(n): return int(n)) and rule == str(room.verdict.clause)
-	return false
+	var choices = response.get("choices")
+	var entries := moments(room)
+	if not (choices is Array) or choices.size() != entries.size():
+		return false
+	var picks: Array = []
+	for k in range(choices.size()):
+		var pick = choices[k]
+		if (typeof(pick) != TYPE_INT and typeof(pick) != TYPE_FLOAT) or int(pick) < 0 \
+				or int(pick) >= entries[k].options.size():
+			return false
+		picks.append(int(pick))
+	return audit(room, picks).all(func(row): return row.passed)

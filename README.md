@@ -56,6 +56,14 @@ inactive. Verified Onyen and PID are retained for roster use; PID stays out of
 game responses and session cookies. Grading and badge awards happen on the
 server.
 
+The Control Center's trophy opens weekly per-level standings, ranked by highest
+stars then fewest mistakes in each player's best completed run. The adjacent gear
+opens audio, fullscreen, and leaderboard visibility settings; it is also available
+during levels. Approved TAs and professors can open a staff dashboard with class,
+question, and individual statistics. See [classroom features](Docs/classroom-features.md)
+for scoring, privacy, and staff access, and [deployment operations](infra/README.md#staff-dashboard-access)
+to add or remove staff Onyens.
+
 [Play the hosted game](https://assembly-adventures-teddyt.apps.cloudapps.unc.edu/)
 (requires UNC login). The current CloudApps namespace is `teddyt`.
 
@@ -89,12 +97,11 @@ setup, tests, environment variables, code map, and contribution workflow.
 | [Deployment and operations](infra/README.md) | Exporting, CloudApps login, migrations, backups, and namespace moves |
 | [Gameplay API](Docs/gameplay-api.md) | Authentication, answer formats, retries, and error responses |
 | [Database schema](Docs/schema.md) | Tables, snapshots, question authoring, and migration rules |
+| [Classroom features](Docs/classroom-features.md) | Staff statistics/access, settings, and weekly standings |
 | [Level brainstorm](Docs/level-brainstorm.md) | Puzzle ideas for every level, mapped to the COMP 311 calendar |
 | [Asset credits](assets/CREDITS.md) | Sources and licenses for fonts, sounds, music, and sprites |
-| [Legacy question bank](Docs/questionBankDocs.md) | Understanding the original `questions.json` import format |
 
-The database is the runtime question source. `questions.json` is historical
-bootstrap input, not the game's content feed. Apply database changes with
+The database is the runtime question source. Apply database changes with
 `python -m server.database`; never rerun seeds manually on an existing database
 or edit migration files that have already been deployed.
 

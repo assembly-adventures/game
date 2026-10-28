@@ -159,7 +159,7 @@ func _show_start() -> void:
 
 ## Assembles the program with the moves made so far and runs it until the next move or the end.
 func _rebuild() -> void:
-	var built := CallMachine.assemble(payload, [], choices)
+	var built := CallMachine.assemble(payload, choices)
 	walk = {"built": built, "state": CallMachine.run(payload, built.lines, built.labels, 0, built.stops),
 		"at": int(walk.get("at", 0))}
 
@@ -223,7 +223,7 @@ func _play_walk() -> void:
 			break
 		var seconds := _reading_time()
 		_run_bar(seconds)
-		await tower.get_tree().create_timer(seconds).timeout
+		await tower.get_tree().create_timer(seconds, false).timeout
 		if not is_instance_valid(tower):
 			return
 	if mine == generation:
@@ -333,6 +333,7 @@ func _choose(k: int) -> void:
 	if k < 0 or k >= entry.options.size():
 		return
 	var option: Dictionary = entry.options[k]
+	learning_event.emit("walk_choice", {"moment": m, "choice": k})
 	if bool(option.good):
 		Audio.play("press", -4.0, 0.1)
 		choices[m] = k
@@ -352,7 +353,7 @@ func _choose(k: int) -> void:
 	for j in range(picks.size()):
 		if int(picks[j]) < 0:
 			picks[j] = _good_option(j)
-	var built := CallMachine.assemble(payload, [], picks)
+	var built := CallMachine.assemble(payload, picks)
 	trying = {"moment": m, "option": option, "picks": picks, "built": built, "at": int(walk.at), "done": false,
 		"state": CallMachine.run(payload, built.lines, built.labels, 0)}
 	view = trying
@@ -381,7 +382,7 @@ func _play_out() -> void:
 	var limit := mini(trace.size(), int(trying.at) + SHOWN)
 	_show()
 	while not trying.is_empty() and int(trying.at) < limit and mine == generation:
-		await tower.get_tree().create_timer(QUICK).timeout
+		await tower.get_tree().create_timer(QUICK, false).timeout
 		if not is_instance_valid(tower) or trying.is_empty() or mine != generation:
 			return
 		trying.at = int(trying.at) + 1
@@ -415,7 +416,7 @@ func _finish() -> void:
 	finished = true
 	auto = false
 	_stop_bar()
-	var row: Dictionary = CallMachine.audit(payload, [], choices)[0]
+	var row: Dictionary = CallMachine.audit(payload, choices)[0]
 	if row.passed:
 		locked = true
 		_sync()
@@ -477,7 +478,7 @@ func _show() -> void:
 		header.text = "THAT MOVE BROKE IT"
 		header.add_theme_color_override("font_color", Style.RED)
 		line_label.text = _fault_text(state.fault, 0) if not state.fault.is_empty() \
-			else _detail(CallMachine.audit(payload, [], trying.picks)[0])
+			else _detail(CallMachine.audit(payload, trying.picks)[0])
 		line_label.show()
 		body.text = str(trying.option.why)
 		rewind_button.show()
@@ -493,7 +494,7 @@ func _show() -> void:
 	elif _ending():
 		header.text = "THE CHOMPER CHECKS"
 		header.add_theme_color_override("font_color", Style.GREEN)
-		var row: Dictionary = CallMachine.audit(payload, [], choices)[0]
+		var row: Dictionary = CallMachine.audit(payload, choices)[0]
 		body.text = _verdict(row)
 		_finish.call_deferred()
 	elif at == 0:

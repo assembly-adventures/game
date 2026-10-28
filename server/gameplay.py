@@ -8,6 +8,8 @@ from psycopg.types.json import Jsonb
 
 from .database import connect
 from .grading import grade, snapshot
+from .scoring import question_stats
+from .call_stack import moments
 
 STRIKES = 3  # Failed tries on a puzzle gate before the Chip Chomper drags the player back a gate.
 
@@ -21,7 +23,7 @@ def register_player(onyen: str, pid: str) -> None:
 
 def player(conn, onyen: str) -> dict:
     # Serialize a player's mutations, including concurrent start/retry/finish calls.
-    row = conn.execute("SELECT id,onyen FROM aa.players WHERE onyen=%s FOR UPDATE", (onyen,)).fetchone()
+    row = conn.execute("SELECT id,onyen,leaderboard_visible FROM aa.players WHERE onyen=%s FOR UPDATE", (onyen,)).fetchone()
     if not row:
         raise HTTPException(401, "Please sign in again to create your saved profile.")
     return row
@@ -36,9 +38,11 @@ def profile(conn, player_id: UUID) -> dict:
 
 
 def me(onyen: str) -> dict:
+    from .reporting import is_staff
     with connect() as conn:
         who = player(conn, onyen)
-        return {"onyen": str(who["onyen"]), **profile(conn, who["id"])}
+        return {"onyen": str(who["onyen"]), "is_staff": is_staff(onyen),
+                "leaderboard_visible": who["leaderboard_visible"], **profile(conn, who["id"])}
 
 
 def levels(onyen: str) -> list[dict]:
@@ -92,11 +96,13 @@ def run_view(conn, run: dict) -> dict:
     return {"id": run["id"], "level_id": run["level_id"], "outcome": run["outcome"],
             "questions": [row["public_question"] for row in rows],
             "solved_question_ids": [question_id for question_id in state["order"] if question_id in state["solved"]],
+            "question_stats": question_stats(conn, run["id"]),
+            "leaderboard_eligible": run["scoring_version"] == 1,
             "strikes": {str(question_id): count for question_id, count in state["strikes"].items()
                         if count and question_id not in state["solved"]}}
 
 
-def start_run(onyen: str, level_id: int) -> dict:
+def start_run(onyen: str, level_id: int, telemetry_version: int = 0) -> dict:
     with connect() as conn:
         who = player(conn, onyen)
         level = conn.execute("SELECT * FROM aa.levels WHERE id=%s AND is_active", (level_id,)).fetchone()
@@ -112,8 +118,8 @@ def start_run(onyen: str, level_id: int) -> dict:
                                              (level_id,)).fetchall())
         if not questions:
             raise HTTPException(409, "No questions are available for this level.")
-        run = conn.execute("""INSERT INTO aa.level_runs(player_id,level_id,questions_total)
-            VALUES (%s,%s,%s) RETURNING *""", (who["id"], level_id, len(questions))).fetchone()
+        run = conn.execute("""INSERT INTO aa.level_runs(player_id,level_id,questions_total,scoring_version)
+            VALUES (%s,%s,%s,%s) RETURNING *""", (who["id"], level_id, len(questions), telemetry_version)).fetchone()
         # A run's ordinals are its own order, 1 to n, since a drawn run skips some of the bank.
         for position, question in enumerate(questions, 1):
             public, solution = snapshot(question)
@@ -166,7 +172,9 @@ def attempt(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID,
         if run["outcome"] != "in_progress":
             raise HTTPException(409, "This run has already finished.")
         if question_id in progress(conn, run_id)["solved"]:
-            return {"is_correct": True, "explanation": question["explanation"]}
+            stats = question_stats(conn, run_id)[str(question_id)]
+            return {"is_correct": True, "explanation": question["explanation"],
+                    "stars": stats["stars"], "question_stats": stats}
         history = conn.execute("""SELECT count(*) AS attempts,coalesce(bool_or(is_correct),false) AS solved_before
             FROM aa.question_attempts WHERE run_id=%s AND question_id=%s""", (run_id, question_id)).fetchone()
         if history["attempts"] >= 1000:
@@ -198,7 +206,9 @@ def strike(conn, run_id: UUID, question_id: UUID, attempt_id: UUID) -> None:
 
 def outcome(conn, question: dict, attempted: dict) -> dict:
     """The graded result; puzzle gates also report strikes and any setback the attempt caused."""
-    result = {"is_correct": attempted["is_correct"], "explanation": question["explanation"]}
+    stats = question_stats(conn, question["run_id"])[str(attempted["question_id"])]
+    result = {"is_correct": attempted["is_correct"], "explanation": question["explanation"],
+              "stars": stats["stars"], "question_stats": stats}
     if question["public_question"]["type"] != "puzzle":
         return result
     setback = conn.execute("SELECT question_id FROM aa.run_setbacks WHERE caused_by_attempt_id=%s",
@@ -223,11 +233,67 @@ def finish_run(onyen: str, run_id: UUID) -> dict:
                 raise HTTPException(409, "Answer every question correctly before finishing.")
             score = conn.execute("SELECT coalesce(sum(points_awarded),0) AS score FROM aa.question_attempts WHERE run_id=%s",
                                  (run_id,)).fetchone()["score"]
+            stats = question_stats(conn, run_id)
+            stars = sum(row["stars"] or 0 for row in stats.values())
+            mistakes = sum(row["mistakes"] for row in stats.values())
             conn.execute("""UPDATE aa.level_runs SET outcome='completed',passed=true,ended_at=now(),
-                questions_correct=%s,score=%s WHERE id=%s""", (len(solved), score, run_id))
+                questions_correct=%s,score=%s,stars_total=%s,mistakes_total=%s WHERE id=%s""",
+                (len(solved), score, stars, mistakes, run_id))
+            run["stars_total"], run["mistakes_total"] = stars, mistakes
             conn.execute("""INSERT INTO aa.player_badges(player_id,badge_id,awarded_run_id)
                 SELECT %s,id,%s FROM aa.badges WHERE level_id=%s AND is_active
                 ON CONFLICT (player_id,badge_id) DO NOTHING""", (who["id"], run_id, run["level_id"]))
         elif not run["passed"]:
             raise HTTPException(409, "This run cannot be completed.")
-        return {"passed": True, **profile(conn, who["id"])}
+        return {"passed": True, "stars": run["stars_total"], "mistakes": run["mistakes_total"],
+                "max_stars": run["questions_total"] * 3, "leaderboard_eligible": run["scoring_version"] == 1,
+                **profile(conn, who["id"])}
+
+
+def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID,
+                   kind: str, moment: int | None = None, choice: int | None = None) -> dict:
+    """Record a hint or a walkthrough decision without adding gameplay strikes."""
+    with connect() as conn:
+        who = player(conn, onyen)
+        run = owned_run(conn, who, run_id)
+        question = conn.execute("SELECT public_question FROM aa.run_questions WHERE run_id=%s AND question_id=%s",
+                                (run_id, question_id)).fetchone()
+        if not question:
+            raise HTTPException(404, "Question does not belong to this run.")
+        previous = conn.execute("SELECT * FROM aa.question_events WHERE run_id=%s AND request_id=%s",
+                                (run_id, request_id)).fetchone()
+        if previous:
+            if any(previous[key] != value for key, value in
+                   (("question_id", question_id), ("kind", kind), ("moment", moment), ("choice", choice))):
+                raise HTTPException(409, "A retry must contain the same learning event.")
+            return {"is_correct": previous["is_correct"],
+                    "question_stats": question_stats(conn, run_id)[str(question_id)]}
+        if run["outcome"] != "in_progress":
+            raise HTTPException(409, "This run has already finished.")
+        if question_id in progress(conn, run_id)["solved"]:
+            raise HTTPException(409, "This question is already solved.")
+        count = conn.execute("SELECT count(*) AS n FROM aa.question_events WHERE run_id=%s AND question_id=%s",
+                             (run_id, question_id)).fetchone()["n"]
+        if count >= 1000:
+            raise HTTPException(429, "Too many learning events on this question.")
+        public = question["public_question"]
+        correct = None
+        if kind == "hint":
+            if moment is not None or choice is not None or not public.get("hint"):
+                raise HTTPException(422, "This hint event is not valid for this question.")
+        elif kind == "walk_choice":
+            payload = public.get("payload", {})
+            if payload.get("kind") != "walk":
+                raise HTTPException(422, "This question has no walkthrough decisions.")
+            entries = moments(payload)
+            if (type(moment) is not int or not 0 <= moment < len(entries)
+                    or type(choice) is not int or not 0 <= choice < len(entries[moment]["options"])):
+                raise HTTPException(422, "Choose a valid option at this walkthrough's moment.")
+            correct = bool(entries[moment]["options"][choice]["good"])
+        else:
+            raise HTTPException(422, "Unknown learning event.")
+        conn.execute("""INSERT INTO aa.question_events
+            (run_id,question_id,player_id,request_id,kind,moment,choice,is_correct)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (run_id, question_id, who["id"], request_id, kind, moment, choice, correct))
+        return {"is_correct": correct, "question_stats": question_stats(conn, run_id)[str(question_id)]}

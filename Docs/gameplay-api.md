@@ -10,11 +10,31 @@ the game asks the player to reload and sign in again.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /api/me` | Onyen, active earned badges, badge total, and progress ratio |
+| `GET /api/me` | Onyen, active earned badges, progress, `is_staff`, and `leaderboard_visible` |
 | `GET /api/levels` | Availability, question counts, and completion flags |
-| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 to 3) |
+| `POST /api/runs` | `{level_id: 1, telemetry_version: 1}` starts or resumes a run; omitting the telemetry version creates a legacy, unranked run |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
+| `POST /api/runs/{id}/events` | Saves an idempotent hint or walkthrough-choice event; mistakes do not cause strikes |
+| `GET /api/leaderboard?level_id=1&week_offset=0` | Best completed run per visible player in an Eastern calendar week; offsets from -104 through 0 |
+| `POST /api/preferences` | `{leaderboard_visible: false}` hides the signed-in player's public current/historical entries |
+
+Staff-only reads: `/api/admin/overview`, `/api/admin/levels/{id}`,
+`/api/admin/questions/{uuid}`, `/api/admin/students?q=onyen&limit=50&offset=0`,
+and `/api/admin/students/{uuid}`. Both the browser page at `/admin` and these
+endpoints require a signed session and `AA_STAFF_ONYENS` authorization. They never
+return PID. See [classroom features](classroom-features.md) for metric definitions.
+
+An event has `question_id`, `request_id`, and `kind`. Hint events use
+`{"kind":"hint"}`; walkthrough events use
+`{"kind":"walk_choice","moment":0,"choice":1}` with indexes into the frozen
+question. The server validates and determines correctness. Retry the same event
+with the same request ID; changing its payload returns 409. Events on another
+player's run return 404. New events on finished runs or solved gates return 409.
+Question statistics contain `mistakes`, `hint_used`, and `stars` (null until solved).
+Runs return these keyed by question ID in `question_stats`, plus
+`leaderboard_eligible`; attempts return the affected question's statistics and
+stars. Finish returns total `stars`, `mistakes`, `max_stars`, and eligibility.
 
 Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 `solved_question_ids`, and `strikes` (failed tries so far on unsolved puzzle
@@ -87,12 +107,9 @@ at each of the room's moments, in code order:
 The server writes the picked moves into the program and runs every one of the
 Chip Chomper's calls, which must return the expected value with `s0`-`s11` and
 `sp` as the Chomper set them. A wrong set of moves is a miss like any other, but
-the game never sends one: it plays a wrong move out on screen and rewinds it, so
+the game records it as a `walk_choice` event instead of an answer: it plays a wrong move out and rewinds, so
 students see what breaks without a strike. Anything that isn't one valid option
-per moment returns 422. Runs started before the walkthroughs keep their earlier
-rooms, which still take a frame (`{"frame": ["s0", "ra"]}`), typed values
-(`{"values": [9, 4, 1]}`), or a line and a rule
-(`{"line": 256, "clause": "callee-save"}`).
+per moment returns 422.
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when

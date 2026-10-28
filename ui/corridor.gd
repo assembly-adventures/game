@@ -151,7 +151,7 @@ func _let_go(to_index: int, dragged: bool) -> void:
 func finish() -> void:
 	walk_to(total)
 	create_tween().tween_property(self, "fled", 1.0, 1.4)
-	get_tree().create_timer(0.9).timeout.connect(func():
+	get_tree().create_timer(0.9, false).timeout.connect(func():
 		robot_sprite.cheer = 4.0
 		Style.burst(self, Vector2(size.x - 34, size.y - 64), [GREEN, GOLD, CYAN, PURPLE, Color.WHITE], 44, 320.0, 80.0, 520.0, 6.0, 1.1))
 

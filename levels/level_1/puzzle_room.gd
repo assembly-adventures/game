@@ -4,6 +4,7 @@ extends RefCounted
 ## interpreter mirrors server/puzzles.py; the server replays the presses and has the final say.
 
 signal attempt
+signal learning_event(kind: String, detail: Dictionary)
 
 const Visuals := preload("res://levels/level_1/visuals.gd")
 const Style := preload("res://ui/style.gd")
@@ -117,7 +118,7 @@ func press(index: int) -> void:
 		# Let the bulbs settle before the gate reacts.
 		locked = true
 		_sync()
-		await strip.get_tree().create_timer(0.4).timeout
+		await strip.get_tree().create_timer(0.4, false).timeout
 		if is_instance_valid(strip):
 			attempt.emit()
 		return
@@ -143,6 +144,7 @@ func show_hint() -> void:
 	if hint.is_empty() or hint_used:
 		return
 	hint_used = true
+	learning_event.emit("hint", {})
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
 	hint_label.show()
@@ -159,7 +161,7 @@ func failed() -> void:
 	fails += 1
 	tray.shake = 8.0
 	strip.flash_message("OUT OF MOVES", Visuals.RED)
-	await strip.get_tree().create_timer(0.9).timeout
+	await strip.get_tree().create_timer(0.9, false).timeout
 	if not is_instance_valid(strip):
 		return
 	reset()

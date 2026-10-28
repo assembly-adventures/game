@@ -105,6 +105,33 @@ Both unauthenticated requests should redirect to `/auth/login`. Follow the
 login flow, verify that the game loads, and play through levels 1 to 3. Automated
 tests mock CSXL verification; they do not substitute for this real SSO check.
 
+## Staff dashboard access
+
+Staff Onyens live in the ConfigMap `assembly-adventures-staff`, key
+`AA_STAFF_ONYENS`, as a comma-separated list. Deployments do not create it.
+Each update replaces the whole list, so include everyone who should keep access:
+
+```bash
+oc create configmap assembly-adventures-staff -n teddyt \
+  --from-literal=AA_STAFF_ONYENS="tedthavisin,kakiryan" \
+  --dry-run=client -o yaml | oc apply -n teddyt -f -
+oc rollout restart deployment/assembly-adventures -n teddyt
+oc rollout status deployment/assembly-adventures -n teddyt
+```
+
+The restart is required; the app reads the list only at startup. Check the
+current list with:
+
+```bash
+oc get configmap assembly-adventures-staff -n teddyt -o jsonpath='{.data.AA_STAFF_ONYENS}'; echo
+```
+
+The Deployment must reference the ConfigMap, which the current template does.
+If `AA_STAFF_ONYENS` is missing from
+`oc get deployment assembly-adventures -n teddyt -o jsonpath='{.spec.template.spec.containers[0].env[*].name}'`,
+run `deploy.sh` first. See [classroom features](../Docs/classroom-features.md#staff-access)
+for what staff can see.
+
 ## Moving to another namespace
 
 Run the same script with the new namespace and hostname. This creates an
