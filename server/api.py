@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 
 from . import gameplay, reporting
 
@@ -19,6 +19,11 @@ class StartRun(BaseModel):
 class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     leaderboard_visible: StrictBool
+
+
+class Nickname(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    nickname: StrictStr = Field(max_length=64)  # Blank goes back to Player <number>.
 
 
 class LearningEvent(BaseModel):
@@ -72,6 +77,10 @@ def router(authenticate, origin: str) -> APIRouter:
     def preferences(body: Preferences, onyen: str = Depends(user)) -> dict:
         return reporting.preferences(onyen, body.leaderboard_visible)
 
+    @routes.post("/nickname")
+    def nickname(body: Nickname, onyen: str = Depends(user)) -> dict:
+        return reporting.set_nickname(onyen, body.nickname)
+
     @routes.get("/leaderboard")
     def leaderboard(level_id: int = Query(ge=1, le=7), week_offset: int = Query(default=0, ge=-104, le=0),
                     onyen: str = Depends(user)) -> dict:
@@ -97,6 +106,10 @@ def router(authenticate, origin: str) -> APIRouter:
     @routes.get("/admin/students/{student_id}")
     def student_detail(student_id: UUID, onyen: str = Depends(staff)) -> dict:
         return reporting.student_detail(onyen, student_id)
+
+    @routes.post("/admin/students/{student_id}/clear-nickname")
+    def clear_nickname(student_id: UUID, onyen: str = Depends(staff)) -> dict:
+        return reporting.clear_nickname(onyen, student_id)
 
     @routes.post("/runs")
     def start(body: StartRun, onyen: str = Depends(user)) -> dict:

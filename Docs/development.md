@@ -125,7 +125,7 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `levels/level_3/call_machine.gd`, `tower_visuals.gd` | Level 3's machine (a client copy of `server/call_stack.py`, with a trace for the walkthroughs and stops at moves not made yet) and its drawing: the listing (whose slot for a waiting move takes the dropped block) and the Call Stack Tower |
 | `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading the assembly lines Levels 2 and 3 write; ABI register names and their x-names |
 | `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
-| `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay and weekly per-level standings |
+| `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay (including the nickname) and weekly per-level standings |
 | `ui/learning_log.gd` | Durable hint/decision event queue, retried with stable request IDs |
 | `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
 | `server/app.py` | CSXL callback verification, signed session, protected static files |

@@ -3,10 +3,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import os
+import time
 import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
 from . import test_gameplay
@@ -14,7 +16,7 @@ from .call_stack import moments
 from .database import connect
 from .gameplay import learning_event, register_player
 from .grading import snapshot
-from .reporting import answer_text, weekly_window
+from .reporting import BOARD_NAME, answer_text, nickname_text, set_nickname, weekly_window
 from .scoring import stars_for
 
 
@@ -73,6 +75,19 @@ class AnswerTextTests(unittest.TestCase):
                          ['{"selected_option_ids": ["gone"]}'])
 
 
+class NicknameTests(unittest.TestCase):
+    def test_nicknames_are_tidied_and_checked(self):
+        self.assertEqual(nickname_text("  Speedy \t Gonzales "), "Speedy Gonzales")
+        for name in ("abc", "risc-v_fan 99", "x" * 20, "007"):
+            self.assertEqual(nickname_text(name), name)
+        self.assertIsNone(nickname_text("   "))
+        for name in ("ab", "x" * 21, "no!", "Zoë", "- _ -", "Player 12", "player12", "PLAYER_0"):
+            with self.subTest(name=name):
+                with self.assertRaises(HTTPException) as caught:
+                    nickname_text(name)
+                self.assertEqual(caught.exception.status_code, 422)
+
+
 @unittest.skipUnless(os.environ.get("TEST_DATABASE_URL"), "Set TEST_DATABASE_URL to an isolated test database")
 class ReportingTests(unittest.TestCase):
     # Reuse the authenticated synthetic-player fixture without rerunning the gameplay test class.
@@ -105,6 +120,22 @@ class ReportingTests(unittest.TestCase):
         response = self.client.get(f"/api/leaderboard?level_id={level}&week_offset={offset}")
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def board_name(self, onyen):
+        with connect() as conn:
+            return conn.execute(f"SELECT {BOARD_NAME} AS name FROM aa.players p WHERE p.onyen=%s",
+                                (onyen,)).fetchone()["name"]
+
+    def nickname(self, nickname):
+        return self.post("/nickname", {"nickname": nickname})
+
+    def newcomer(self, onyen):
+        register_player(onyen, str(100000000 + uuid4().int % 800000000))
+
+        def remove():
+            with connect() as conn:
+                conn.execute("DELETE FROM aa.players WHERE onyen=%s", (onyen,))
+        self.addCleanup(remove)
 
     def stored_run(self, onyen, stars, mistakes, ended=None, version=1):
         # Completed-run fixtures isolate ranking rules from already-tested puzzle graders.
@@ -207,18 +238,20 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual([(e["rank"], e["stars"], e["mistakes"]) for e in entries], [(1, 30, 5), (1, 30, 5)])
         self.stored_run(self.other, 30, 2)
         entries = self.board()["entries"]
-        self.assertEqual([(e["onyen"], e["rank"], e["mistakes"]) for e in entries], [(self.other, 1, 2), (self.onyen, 2, 5)])
+        self.assertEqual([(e["name"], e["rank"], e["mistakes"]) for e in entries],
+                         [(self.board_name(self.other), 1, 2), (self.board_name(self.onyen), 2, 5)])
 
     def test_hide_removes_identity_from_current_and_historical_boards_but_not_staff(self):
         self.stored_run(self.onyen, 30, 0)
         self.stored_run(self.other, 29, 2)
         self.stored_run(self.onyen, 30, 0, weekly_window(-1)[0]+timedelta(days=1))
+        self.assertEqual(self.nickname("Hidden Hero").status_code, 200)
         self.assertEqual(self.post("/preferences", {"leaderboard_visible": False}).status_code, 200)
         self.assertIsNone(self.board()["my_entry"]["rank"])
         self.assertFalse(self.client.get("/api/me").json()["leaderboard_visible"])
         self.sign_in(self.other)
         for offset in (0, -1):
-            self.assertNotIn(self.onyen, str(self.board(offset=offset)))
+            self.assertNotIn("Hidden Hero", str(self.board(offset=offset)))
         self.assertEqual(self.board()["entries"][0]["rank"], 1)
         with patch.dict(os.environ, {"AA_STAFF_ONYENS": self.other}):
             response = self.client.get("/api/admin/students", params={"q": self.onyen})
@@ -226,6 +259,108 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(response.json()["students"][0]["onyen"], self.onyen)
         self.assertEqual(self.post("/preferences", {"leaderboard_visible": True, "onyen": self.onyen}).status_code, 422)
         self.assertEqual(self.post("/preferences", {"leaderboard_visible": "false"}).status_code, 422)
+
+    def test_board_names_players_by_nickname_or_number_never_by_onyen(self):
+        self.stored_run(self.onyen, 30, 0)
+        self.stored_run(self.other, 29, 2)
+        me = self.client.get("/api/me").json()
+        self.assertIsNone(me["nickname"])
+        self.assertRegex(me["leaderboard_name"], r"^Player \d+$")
+        response = self.client.get("/api/leaderboard?level_id=1")
+        self.assertNotIn(self.onyen, response.text)
+        self.assertNotIn(self.other, response.text)
+        self.assertEqual([e["name"] for e in response.json()["entries"]], [me["leaderboard_name"], self.board_name(self.other)])
+        saved = self.nickname("  Speedy   Gonzales ")
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json(), {"nickname": "Speedy Gonzales", "leaderboard_name": "Speedy Gonzales"})
+        self.assertEqual(self.client.get("/api/me").json()["leaderboard_name"], "Speedy Gonzales")
+        self.sign_in(self.other)
+        self.assertEqual(self.board()["entries"][0]["name"], "Speedy Gonzales")
+        with patch.dict(os.environ, {"AA_STAFF_ONYENS": self.other}):
+            found = self.client.get("/api/admin/students", params={"q": "speedy gonz"}).json()["students"]
+            self.assertIn((self.onyen, "Speedy Gonzales"), [(s["onyen"], s["leaderboard_name"]) for s in found])
+            student_id = next(s["id"] for s in found if s["onyen"] == self.onyen)
+            student = self.client.get(f"/api/admin/students/{student_id}").json()["student"]
+            self.assertEqual((student["leaderboard_name"], student["leaderboard_visible"]), ("Speedy Gonzales", True))
+        self.sign_in(self.onyen)
+        self.assertEqual(self.nickname("").json(), {"nickname": None, "leaderboard_name": me["leaderboard_name"]})
+        self.assertEqual(self.board()["entries"][0]["name"], me["leaderboard_name"])
+
+    def test_nicknames_are_unique_ignoring_case_and_cannot_borrow_an_onyen(self):
+        classmate = "tc" + uuid4().hex[:10]
+        self.newcomer(classmate)
+        self.assertEqual(self.nickname("Speedy Gonzales").status_code, 200)
+        self.sign_in(self.other)
+        for name, status in (("SPEEDY gonzales", 409), (classmate.upper(), 409), ("player 7", 422), ("no!", 422)):
+            response = self.nickname(name)
+            self.assertEqual(response.status_code, status, response.text)
+        self.assertIsNone(self.client.get("/api/me").json()["nickname"])
+        self.assertEqual(self.post("/nickname", {"nickname": 7}).status_code, 422)
+        self.assertEqual(self.post("/nickname", {"nickname": "Speedy", "onyen": classmate}).status_code, 422)
+        self.assertEqual(self.client.post("/api/nickname", json={"nickname": "Speedy"}).status_code, 403)
+        self.sign_in(classmate)
+        self.assertEqual(self.nickname(classmate).json()["nickname"], classmate)
+        self.sign_in(self.onyen)
+        self.nickname("Slowpoke")
+        self.sign_in(self.other)
+        self.assertEqual(self.nickname("speedy gonzales").json()["nickname"], "speedy gonzales")
+
+    def test_first_sign_in_takes_back_an_onyen_used_as_a_nickname(self):
+        latecomer = "tc" + uuid4().hex[:10]
+        self.assertEqual(self.nickname(latecomer.upper()).status_code, 200)
+        self.newcomer(latecomer)
+        me = self.client.get("/api/me").json()
+        self.assertIsNone(me["nickname"])
+        self.assertRegex(me["leaderboard_name"], r"^Player \d+$")
+        self.sign_in(latecomer)
+        self.assertEqual(self.nickname(latecomer).status_code, 200)
+
+    def test_staff_can_clear_a_nickname_and_students_cannot(self):
+        self.nickname("Rude Dude")
+        with connect() as conn:
+            student = conn.execute("SELECT id FROM aa.players WHERE onyen=%s", (self.onyen,)).fetchone()["id"]
+        path = f"/admin/students/{student}/clear-nickname"
+        with patch.dict(os.environ, {"AA_STAFF_ONYENS": ""}):
+            self.assertEqual(self.post(path).status_code, 403)
+        self.sign_in(self.other)
+        with patch.dict(os.environ, {"AA_STAFF_ONYENS": self.other}):
+            self.assertEqual(self.client.get(f"/api/admin/students/{student}").json()["student"]["nickname"], "Rude Dude")
+            self.assertEqual(self.client.post(f"/api{path}").status_code, 403)
+            cleared = self.post(path)
+            self.assertEqual(cleared.status_code, 200, cleared.text)
+            self.assertEqual(cleared.json(), {"nickname": None, "leaderboard_name": self.board_name(self.onyen)})
+            self.assertEqual(self.post(f"/admin/students/{uuid4()}/clear-nickname").status_code, 404)
+        self.sign_in(self.onyen)
+        self.assertIsNone(self.client.get("/api/me").json()["nickname"])
+
+    def test_a_nickname_saved_at_the_same_moment_is_taken(self):
+        # Another request has saved the nickname but not yet committed when this one checks for it.
+        pool = ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(pool.shutdown)
+        with connect() as holder:
+            holder.execute("UPDATE aa.players SET nickname='Photo Finish' WHERE onyen=%s", (self.other,))
+            claim = pool.submit(set_nickname, self.onyen, "Photo Finish")
+            with connect() as watcher:
+                watcher.autocommit = True  # Inside a transaction, every look at the activity would be the first.
+                while not (claim.done() or watcher.execute("""SELECT 1 FROM pg_stat_activity
+                        WHERE wait_event_type='Lock' AND query LIKE 'UPDATE aa.players SET nickname=%'""").fetchone()):
+                    time.sleep(0.02)
+        with self.assertRaises(HTTPException) as caught:
+            claim.result(timeout=10)
+        self.assertEqual(caught.exception.status_code, 409)
+
+    def test_signing_in_again_keeps_the_player_number_without_using_up_others(self):
+        first, second = ("test_" + uuid4().hex for _ in range(2))
+        self.newcomer(first)
+        with connect() as conn:
+            pid = conn.execute("SELECT pid FROM aa.players WHERE onyen=%s", (self.onyen,)).fetchone()["pid"]
+        before = self.board_name(self.onyen)
+        for _ in range(3):
+            register_player(self.onyen, pid)
+        self.newcomer(second)
+        self.assertEqual(self.board_name(self.onyen), before)
+        numbers = [int(self.board_name(onyen).split()[1]) for onyen in (first, second)]
+        self.assertEqual(numbers[1], numbers[0] + 1)
 
     def test_weekly_rollover_uses_completion_time_and_leaves_old_runs_intact(self):
         start, end = weekly_window()
@@ -236,7 +371,7 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual([(e["stars"], e["mistakes"]) for e in self.board()["entries"]], [(29, 1), (28, 2)])
         self.assertEqual(self.board(offset=-1)["my_entry"]["stars"], 30)
         with patch("server.reporting.weekly_window", return_value=(end, end+timedelta(days=7))):
-            self.assertEqual([e["onyen"] for e in self.board()["entries"]], [self.other])
+            self.assertEqual([e["name"] for e in self.board()["entries"]], [self.board_name(self.other)])
         with connect() as conn:
             self.assertEqual(conn.execute("SELECT count(*) AS n FROM aa.level_runs").fetchone()["n"], 4)
 

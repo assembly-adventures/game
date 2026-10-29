@@ -22,6 +22,9 @@ var last_error: String = ""
 var onyen := ""
 var is_staff := false
 var leaderboard_visible := true
+# The nickname the player picked ("" for none) and the name the leaderboard shows: it, or "Player <number>".
+var nickname := ""
+var leaderboard_name := ""
 var profile_loaded := false
 # Guest mode answers API calls in memory: nothing reaches the server and a reload starts over.
 var guest: bool = false
@@ -96,6 +99,9 @@ func apply_profile(profile: Dictionary) -> void:
 	onyen = str(profile.get("onyen", onyen))
 	is_staff = bool(profile.get("is_staff", is_staff)) and not guest
 	leaderboard_visible = bool(profile.get("leaderboard_visible", leaderboard_visible))
+	if profile.has("nickname"):
+		nickname = str(profile.nickname) if profile.nickname is String else ""
+	leaderboard_name = str(profile.get("leaderboard_name", leaderboard_name))
 	profile_loaded = true
 	earned_badges.clear()
 	for badge in profile.get("badges", []):
@@ -115,6 +121,8 @@ func start_guest() -> void:
 	onyen = ""
 	is_staff = false
 	leaderboard_visible = false
+	nickname = ""
+	leaderboard_name = ""
 	profile_loaded = false
 	guest_badges.clear()
 	for level in GUEST_LEVELS:

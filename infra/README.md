@@ -169,6 +169,22 @@ If `AA_STAFF_ONYENS` is missing from
 run `deploy.sh` first. See [classroom features](../Docs/classroom-features.md#staff-access)
 for what staff can see.
 
+### Clearing a nickname
+
+Staff clear an inappropriate leaderboard nickname themselves: search the
+dashboard's Students page for it, open the student, and choose **Clear
+nickname**. An operator can do the same from a terminal, with the student's Onyen
+in place of `ONYEN`:
+
+```bash
+echo "UPDATE aa.players SET nickname=NULL WHERE onyen='ONYEN';" |
+  oc exec -i -n teddyt deployment/assembly-adventures-postgres -- \
+  sh -c 'PGPASSWORD="$POSTGRESQL_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE"'
+```
+
+`UPDATE 1` confirms it. Either way, the student appears as `Player <number>` again
+and can choose a new nickname; no restart is needed.
+
 ## Moving to another namespace
 
 Run the same script with the new namespace and hostname. This creates an

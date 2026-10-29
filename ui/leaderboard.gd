@@ -11,6 +11,7 @@ var revision := 0
 var week_label: Label
 var status_label: Label
 var personal: Label
+var naming: Label
 var rows: VBoxContainer
 var tabs: Array[Button] = []
 var previous_button: Button
@@ -110,7 +111,7 @@ func _build() -> void:
 	var board := VBoxContainer.new()
 	board.add_theme_constant_override("separation", 10)
 	panel.add_child(board)
-	board.add_child(_row("RANK", "UNC ONYEN", "STARS", "MISTAKES", false, true))
+	board.add_child(_row("RANK", "PLAYER", "STARS", "MISTAKES", false, true))
 	board.add_child(HSeparator.new())
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -129,8 +130,16 @@ func _build() -> void:
 	retry_button.pressed.connect(_load_board)
 	retry_button.hide()
 	board.add_child(retry_button)
+	var you := HBoxContainer.new()
+	you.add_theme_constant_override("separation", 16)
+	layout.add_child(you)
 	personal = _label("", 17, Style.GOLD)
-	layout.add_child(personal)
+	personal.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	you.add_child(personal)
+	naming = _label("", 14, Color(Style.CYAN, 0.85))
+	naming.autowrap_mode = TextServer.AUTOWRAP_OFF
+	naming.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	you.add_child(naming)
 	layout.add_child(_label("Highest stars, then fewest mistakes. Equal results share a rank. Each entry is one completed run.", 14, Color(Style.TEXT, 0.7)))
 	layout.add_child(_label("New week: Monday, 12:00 AM Eastern. Random rooms keep each run different. Badges and progress never reset.", 13, Color(Style.TEXT, 0.5)))
 	back.grab_focus()
@@ -143,7 +152,7 @@ func _label(text: String, font_size: int, color: Color) -> Label:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return label
 
-func _row(rank: String, onyen: String, stars: String, mistakes: String, mine: bool = false, heading: bool = false) -> Control:
+func _row(rank: String, player: String, stars: String, mistakes: String, mine: bool = false, heading: bool = false) -> Control:
 	var box := PanelContainer.new()
 	var look := StyleBoxFlat.new()
 	look.bg_color = Color(Style.CYAN, 0.09) if mine else Color(0.04, 0.075, 0.11, 0.5)
@@ -158,7 +167,7 @@ func _row(rank: String, onyen: String, stars: String, mistakes: String, mine: bo
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 20)
 	box.add_child(row)
-	var values := [rank, onyen, stars, mistakes]
+	var values := [rank, player, stars, mistakes]
 	for i in range(values.size()):
 		var color := Color(Style.TEXT, 0.5) if heading else Style.CYAN if mine else Style.TEXT
 		if i == 2 and not heading:
@@ -190,6 +199,7 @@ func _load_board() -> void:
 	status_label.show()
 	status_label.text = "Loading standings…"
 	personal.text = ""
+	naming.text = ""
 	retry_button.hide()
 	next_button.disabled = week_offset == 0
 	previous_button.disabled = week_offset == -52
@@ -216,8 +226,8 @@ func _load_board() -> void:
 	week_label.text = str(data.get("week_label", "This week")) + " · Eastern"
 	var entries: Array = data.get("entries", [])
 	for entry in entries:
-		var mine := bool(entry.get("is_me", str(entry.onyen) == PlayerData.onyen))
-		rows.add_child(_row(str(int(entry.rank)), str(entry.onyen) + ("  (you)" if mine else ""),
+		var mine := bool(entry.get("is_me", false))
+		rows.add_child(_row(str(int(entry.rank)), str(entry.name) + ("  (you)" if mine else ""),
 			"%d / %d" % [int(entry.stars), int(entry.get("max_stars", 30))], str(int(entry.mistakes)), mine))
 	status_label.visible = entries.is_empty()
 	status_label.text = "No visible results for this level this week." if week_offset == 0 \
@@ -232,3 +242,6 @@ func _load_board() -> void:
 	else:
 		personal.text = "Finish a new run of this level to join this week's standings." if week_offset == 0 \
 			else "You have no completed run recorded for this level in this week."
+	if bool(data.get("leaderboard_visible", PlayerData.leaderboard_visible)) and not PlayerData.leaderboard_name.is_empty():
+		naming.text = "You appear as %s. %s your nickname in Settings." % [PlayerData.leaderboard_name,
+			"Pick" if PlayerData.nickname.is_empty() else "Change"]

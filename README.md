@@ -57,10 +57,11 @@ game responses and session cookies. Grading and badge awards happen on the
 server.
 
 The Control Center's trophy opens weekly per-level standings, ranked by highest
-stars then fewest mistakes in each player's best completed run. The adjacent gear
-opens audio, fullscreen, and leaderboard visibility settings; it is also available
-during levels. Approved TAs and professors can open a staff dashboard with class,
-question, and individual statistics. See [classroom features](Docs/classroom-features.md)
+stars then fewest mistakes in each player's best completed run and listed by
+unique nicknames, never Onyens. The adjacent gear opens audio, fullscreen,
+nickname, and leaderboard visibility settings; it is also available during levels.
+Approved TAs and professors can open a staff dashboard with class, question, and
+individual statistics, where they can also clear inappropriate nicknames. See [classroom features](Docs/classroom-features.md)
 for scoring, privacy, and staff access, and [deployment operations](infra/README.md#staff-dashboard-access)
 to add or remove staff Onyens.
 
@@ -97,7 +98,7 @@ setup, tests, environment variables, code map, and contribution workflow.
 | [Deployment and operations](infra/README.md) | Installing and logging into `oc` (the OpenShift terminal), exporting, deploying, staff access, migrations, backups, and namespace moves |
 | [Gameplay API](Docs/gameplay-api.md) | Authentication, answer formats, retries, and error responses |
 | [Database schema](Docs/schema.md) | Tables, snapshots, question authoring, and migration rules |
-| [Classroom features](Docs/classroom-features.md) | Staff statistics/access, settings, and weekly standings |
+| [Classroom features](Docs/classroom-features.md) | Staff statistics/access, settings, nicknames, and weekly standings |
 | [Level brainstorm](Docs/level-brainstorm.md) | Puzzle ideas for every level, mapped to the COMP 311 calendar |
 | [Asset credits](assets/CREDITS.md) | Sources and licenses for fonts, sounds, music, and sprites |
 

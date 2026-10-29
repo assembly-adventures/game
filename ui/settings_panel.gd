@@ -18,6 +18,8 @@ var fullscreen: CheckButton
 var mute: CheckButton
 var music_slider: HSlider
 var effects_slider: HSlider
+var nickname_field: LineEdit
+var nickname_button: Button
 var visibility_toggle: CheckButton
 var hide_toggle: CheckButton
 var status: Label
@@ -54,14 +56,19 @@ func open() -> void:
 	_update_volume_label(music_slider)
 	_update_volume_label(effects_slider)
 	hide_toggle.set_pressed_no_signal(hide_leaderboard)
+	_show_nickname()
 	_sync_profile()
 	overlay.show()
 	_layout()
 	close_button.grab_focus()
 	if not PlayerData.guest:
+		var shown := nickname_field.text
 		var result := await PlayerData.api_request("/me")
 		if result.ok:
 			PlayerData.apply_profile(result.data)
+			# Keep anything typed while the profile loaded.
+			if nickname_field.text == shown:
+				_show_nickname()
 		else:
 			status.text = result.error
 
@@ -122,7 +129,7 @@ func _build() -> void:
 	panel.add_child(scroll)
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 14)
+	content.add_theme_constant_override("separation", 12)
 	scroll.add_child(content)
 	var heading := HBoxContainer.new()
 	content.add_child(heading)
@@ -147,7 +154,39 @@ func _build() -> void:
 	music_slider = _volume(content, "Music", Audio.set_music_volume)
 	effects_slider = _volume(content, "Sound effects", Audio.set_effects_volume)
 	_section(content, "WEEKLY LEADERBOARD")
-	visibility_toggle = _toggle(content, "Show my Onyen on the leaderboard", "LeaderboardVisibility")
+	var naming := HBoxContainer.new()
+	naming.add_theme_constant_override("separation", 14)
+	content.add_child(naming)
+	var naming_label := _label("Nickname", 17, Style.TEXT)
+	naming_label.custom_minimum_size.x = 126
+	naming.add_child(naming_label)
+	nickname_field = LineEdit.new()
+	nickname_field.name = "Nickname"
+	nickname_field.accessibility_name = "Leaderboard nickname"
+	nickname_field.placeholder_text = "Choose a nickname"
+	nickname_field.max_length = 20
+	# Enter saves; typing can carry on, so a taken nickname can be changed straight away.
+	nickname_field.keep_editing_on_text_submit = true
+	nickname_field.custom_minimum_size = Vector2(80, 38)
+	nickname_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nickname_field.add_theme_font_size_override("font_size", 17)
+	nickname_field.add_theme_color_override("font_color", Style.TEXT)
+	nickname_field.add_theme_color_override("font_uneditable_color", Color(Style.TEXT, 0.4))
+	nickname_field.add_theme_color_override("font_placeholder_color", Color(Style.TEXT, 0.4))
+	nickname_field.add_theme_color_override("caret_color", Style.CYAN)
+	for state in ["normal", "focus", "read_only"]:
+		nickname_field.add_theme_stylebox_override(state, _field_style(state))
+	nickname_field.text_submitted.connect(func(_text: String): _save_nickname())
+	naming.add_child(nickname_field)
+	nickname_button = Button.new()
+	nickname_button.name = "SaveNickname"
+	nickname_button.text = "Save"
+	nickname_button.pressed.connect(_save_nickname)
+	naming.add_child(nickname_button)
+	# Right under the field, so the result of saving a nickname shows where it was typed.
+	status = _label("", 14, Color(Style.TEXT, 0.65))
+	content.add_child(status)
+	visibility_toggle = _toggle(content, "Show me on the leaderboard", "LeaderboardVisibility")
 	visibility_toggle.toggled.connect(_save_visibility)
 	hide_toggle = _toggle(content, "Hide the leaderboard on this device", "HideLeaderboard")
 	hide_toggle.toggled.connect(func(value: bool):
@@ -156,11 +195,10 @@ func _build() -> void:
 		preferences.set_value("competition", "hide_board", value)
 		preferences.save(PREFERENCES)
 		changed.emit())
-	status = _label("", 14, Color(Style.TEXT, 0.65))
-	content.add_child(status)
-	content.add_child(_label("Audio preferences stay on this device. Leaderboard visibility follows your UNC account.", 12, Color(Style.TEXT, 0.5)))
+	content.add_child(_label("Audio preferences stay on this device. Your nickname and visibility follow your UNC account.", 12, Color(Style.TEXT, 0.5)))
 	# Keep keyboard focus inside the modal even on the welcome screen and while a level is paused.
-	var controls: Array[Control] = [close_button, fullscreen, mute, music_slider, effects_slider, visibility_toggle, hide_toggle]
+	var controls: Array[Control] = [close_button, fullscreen, mute, music_slider, effects_slider, nickname_field,
+		nickname_button, visibility_toggle, hide_toggle]
 	for i in range(controls.size()):
 		controls[i].focus_next = controls[i].get_path_to(controls[(i + 1) % controls.size()])
 		controls[i].focus_previous = controls[i].get_path_to(controls[(i - 1 + controls.size()) % controls.size()])
@@ -169,7 +207,7 @@ func _layout() -> void:
 	if panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	panel.size = Vector2(minf(600.0, viewport.x - 32.0), minf(650.0, viewport.y - 32.0))
+	panel.size = Vector2(minf(600.0, viewport.x - 32.0), minf(700.0, viewport.y - 32.0))
 	panel.position = ((viewport - panel.size) / 2.0).round()
 
 func _section(parent: Control, title: String) -> void:
@@ -193,6 +231,25 @@ func _toggle(parent: Control, title: String, node_name: String) -> CheckButton:
 	toggle.custom_minimum_size.y = 38
 	parent.add_child(toggle)
 	return toggle
+
+## The nickname field's look in each state. Godot draws the focus look over the normal one.
+func _field_style(state: String) -> StyleBoxFlat:
+	var look := StyleBoxFlat.new()
+	look.set_corner_radius_all(10)
+	look.set_border_width_all(1)
+	look.content_margin_left = 12
+	look.content_margin_right = 12
+	match state:
+		"focus":
+			look.draw_center = false
+			look.border_color = Color(Style.CYAN, 0.95)
+		"read_only":
+			look.bg_color = Color(0.1, 0.11, 0.14, 0.7)
+			look.border_color = Color(Style.DIM, 0.4)
+		_:
+			look.bg_color = Color(0.04, 0.075, 0.11, 0.9)
+			look.border_color = Color(Style.CYAN, 0.45)
+	return look
 
 func _volume(parent: Control, title: String, setter: Callable) -> HSlider:
 	var row := HBoxContainer.new()
@@ -226,18 +283,23 @@ func _update_volume_label(slider: HSlider) -> void:
 func _sync_profile() -> void:
 	if visibility_toggle == null:
 		return
+	var locked := saving or PlayerData.guest or not PlayerData.profile_loaded
 	visibility_toggle.set_pressed_no_signal(PlayerData.leaderboard_visible and not PlayerData.guest)
-	visibility_toggle.disabled = saving or PlayerData.guest or not PlayerData.profile_loaded
+	visibility_toggle.disabled = locked
+	nickname_field.editable = not locked
+	nickname_button.disabled = locked
 	if saving:
 		status.text = "Saving your leaderboard preference…"
 	elif PlayerData.guest:
-		status.text = "Guest progress is not ranked. Sign in with UNC to join the weekly leaderboard."
+		status.text = "Guests are not ranked. Sign in with UNC to join the weekly leaderboard."
 	elif not PlayerData.profile_loaded:
 		status.text = "Sign in to manage your leaderboard entry."
+	elif PlayerData.leaderboard_visible and PlayerData.nickname.is_empty():
+		status.text = "You appear as %s until you pick a nickname." % PlayerData.leaderboard_name
 	elif PlayerData.leaderboard_visible:
-		status.text = "Your best completed runs appear under your Onyen. You can hide your entry anytime."
+		status.text = "You appear as %s. Course staff can see who picked it." % PlayerData.leaderboard_name
 	else:
-		status.text = "Your entry is hidden. Your progress is still saved and visible to course staff."
+		status.text = "Your entry is hidden. Course staff still see your saved progress."
 
 func _save_visibility(value: bool) -> void:
 	if saving or PlayerData.guest or not PlayerData.profile_loaded:
@@ -254,3 +316,28 @@ func _save_visibility(value: bool) -> void:
 	else:
 		_sync_profile()
 		status.text = result.error + " Reopen Settings to check your saved visibility."
+
+func _show_nickname() -> void:
+	nickname_field.text = PlayerData.nickname
+	# Setting the text puts the caret at the start; typing should carry on from the end.
+	nickname_field.caret_column = nickname_field.text.length()
+
+# A blank nickname goes back to "Player <number>". The server tidies spacing and checks the name is free.
+func _save_nickname() -> void:
+	if saving or PlayerData.guest or not PlayerData.profile_loaded:
+		return
+	saving = true
+	_sync_profile()
+	var result := await PlayerData.api_request("/nickname", HTTPClient.METHOD_POST, {"nickname": nickname_field.text})
+	saving = false
+	if result.ok:
+		PlayerData.nickname = str(result.data.nickname) if result.data.nickname is String else ""
+		PlayerData.leaderboard_name = str(result.data.leaderboard_name)
+		_show_nickname()
+		PlayerData.profile_changed.emit()
+		changed.emit()
+		_sync_profile()
+	else:
+		# The typed name stays so it can be corrected.
+		_sync_profile()
+		status.text = result.error

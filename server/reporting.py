@@ -1,19 +1,26 @@
-"""Staff reporting, player visibility preferences, and weekly level standings."""
+"""Staff reporting, player nicknames and visibility preferences, and weekly level standings."""
 
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 import json
 import os
+import re
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
+from psycopg.errors import UniqueViolation
 
 from .call_stack import moments
 from .database import connect
 from .puzzles import REGISTERS
 
 COURSE_TIMEZONE = ZoneInfo("America/New_York")
+# A player's name on the leaderboard (SQL on aa.players p): their nickname, or "Player <number>"
+# until they pick one. Nobody can pick a name of that form, so no two entries share a name.
+BOARD_NAME = "coalesce(p.nickname,('Player '||p.player_number)::citext)"
+NICKNAME = re.compile(r"[A-Za-z0-9 _-]{3,20}")
+RESERVED = re.compile(r"player[ _-]*\d+", re.IGNORECASE)
 
 
 def is_staff(onyen: str) -> bool:
@@ -40,6 +47,41 @@ def preferences(onyen: str, leaderboard_visible: bool) -> dict:
     return {"leaderboard_visible": leaderboard_visible}
 
 
+def nickname_text(text: str) -> str | None:
+    """The nickname to save, with spacing tidied, or None for a blank one, which goes back to Player <number>."""
+    name = " ".join(text.split())
+    if not name:
+        return None
+    if not NICKNAME.fullmatch(name) or not any(c.isalnum() for c in name):
+        raise HTTPException(422, "A nickname is 3 to 20 letters, numbers, spaces, hyphens, or underscores.")
+    if RESERVED.fullmatch(name):
+        raise HTTPException(422, "Names like Player 12 belong to players without a nickname. Try another.")
+    return name
+
+
+def names(conn, player_id: UUID) -> dict:
+    row = conn.execute(f"SELECT p.nickname,{BOARD_NAME} AS leaderboard_name FROM aa.players p WHERE p.id=%s",
+                       (player_id,)).fetchone()
+    return {"nickname": None if row["nickname"] is None else str(row["nickname"]),
+            "leaderboard_name": str(row["leaderboard_name"])}
+
+
+def set_nickname(onyen: str, text: str) -> dict:
+    name = nickname_text(text)
+    taken = HTTPException(409, "That nickname is taken. Try another.")
+    with connect() as conn:
+        who = _player(conn, onyen)
+        # Another player's Onyen counts as taken, so nobody can pose as a classmate.
+        if name and conn.execute("SELECT 1 FROM aa.players WHERE (nickname=%s OR onyen=%s) AND id<>%s",
+                                 (name, name, who["id"])).fetchone():
+            raise taken
+        try:
+            conn.execute("UPDATE aa.players SET nickname=%s WHERE id=%s", (name, who["id"]))
+        except UniqueViolation:
+            raise taken from None  # Someone saved the same nickname a moment earlier.
+        return names(conn, who["id"])
+
+
 def weekly_window(week_offset: int = 0, now: datetime | None = None) -> tuple[datetime, datetime]:
     """Calendar weeks, including the 167/169-hour weeks around Eastern DST changes."""
     today = (now or datetime.now(timezone.utc)).astimezone(COURSE_TIMEZONE).date()
@@ -55,8 +97,8 @@ def leaderboard(onyen: str, level_id: int, week_offset: int = 0) -> dict:
         level = conn.execute("SELECT id,name FROM aa.levels WHERE id=%s AND is_active", (level_id,)).fetchone()
         if not level:
             raise HTTPException(404, "This level is not available yet.")
-        rows = conn.execute("""WITH ranked_runs AS (
-                SELECT r.player_id,p.onyen,p.leaderboard_visible,r.stars_total AS stars,
+        rows = conn.execute(f"""WITH ranked_runs AS (
+                SELECT r.player_id,{BOARD_NAME} AS name,p.leaderboard_visible,r.stars_total AS stars,
                     r.questions_total*3 AS max_stars,r.mistakes_total AS mistakes,
                     row_number() OVER (PARTITION BY r.player_id
                         ORDER BY r.stars_total DESC,r.mistakes_total,r.ended_at,r.id) AS best
@@ -64,13 +106,13 @@ def leaderboard(onyen: str, level_id: int, week_offset: int = 0) -> dict:
                 WHERE r.level_id=%s AND r.passed AND r.scoring_version=1
                     AND r.stars_total IS NOT NULL AND r.mistakes_total IS NOT NULL
                     AND r.ended_at >= %s AND r.ended_at < %s
-            ) SELECT player_id,onyen,leaderboard_visible,stars,max_stars,mistakes FROM ranked_runs
-                WHERE best=1 ORDER BY stars DESC,mistakes,onyen""", (level_id, start, end)).fetchall()
+            ) SELECT player_id,name,leaderboard_visible,stars,max_stars,mistakes FROM ranked_runs
+                WHERE best=1 ORDER BY stars DESC,mistakes,name""", (level_id, start, end)).fetchall()
         entries, mine = [], None
         previous_score, rank = None, 0
         for row in rows:
-            entry = {key: row[key] for key in ("onyen", "stars", "max_stars", "mistakes")}
-            entry["onyen"] = str(entry["onyen"])
+            entry = {key: row[key] for key in ("name", "stars", "max_stars", "mistakes")}
+            entry["name"] = str(entry["name"])
             entry["is_me"] = row["player_id"] == who["id"]
             entry["rank"] = None
             if row["leaderboard_visible"]:
@@ -257,22 +299,25 @@ def students(onyen: str, q: str = "", limit: int = 100, offset: int = 0) -> dict
     require_staff(onyen)
     # Literal substring search: %, _ and backslash in input are not wildcard syntax.
     search = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    # Staff can also find a student by the name the leaderboard shows.
+    match = f"p.onyen ILIKE %(search)s OR {BOARD_NAME} ILIKE %(search)s"
     with connect() as conn:
-        total = conn.execute("SELECT count(*) AS n FROM aa.players WHERE onyen ILIKE %s", (search,)).fetchone()["n"]
-        rows = conn.execute("""SELECT p.id,p.onyen,p.last_seen_at,
+        total = conn.execute(f"SELECT count(*) AS n FROM aa.players p WHERE {match}", {"search": search}).fetchone()["n"]
+        rows = conn.execute(f"""SELECT p.id,p.onyen,{BOARD_NAME} AS leaderboard_name,p.last_seen_at,
             (SELECT count(DISTINCT r.level_id) FROM aa.level_runs r WHERE r.player_id=p.id AND r.passed) AS levels_completed,
             (SELECT count(*) FROM aa.question_attempts a WHERE a.player_id=p.id) +
                 (SELECT count(*) FROM aa.question_events e WHERE e.player_id=p.id AND e.kind='walk_choice'
                     AND NOT e.is_correct) AS attempts
-            FROM aa.players p WHERE p.onyen ILIKE %s ORDER BY p.onyen LIMIT %s OFFSET %s""",
-                            (search, limit, offset)).fetchall()
+            FROM aa.players p WHERE {match} ORDER BY p.onyen LIMIT %(limit)s OFFSET %(offset)s""",
+                            {"search": search, "limit": limit, "offset": offset}).fetchall()
         return {"students": rows, "total": total, "limit": limit, "offset": offset}
 
 
 def student_detail(onyen: str, student_id: UUID) -> dict:
     require_staff(onyen)
     with connect() as conn:
-        student = conn.execute("SELECT id,onyen,last_seen_at FROM aa.players WHERE id=%s", (student_id,)).fetchone()
+        student = conn.execute(f"""SELECT p.id,p.onyen,p.last_seen_at,p.leaderboard_visible,p.nickname,
+            {BOARD_NAME} AS leaderboard_name FROM aa.players p WHERE p.id=%s""", (student_id,)).fetchone()
         if not student:
             raise HTTPException(404, "Student not found.")
         runs = conn.execute("""SELECT r.id,r.level_id,l.name AS level_name,r.outcome,r.started_at,r.ended_at,
@@ -304,3 +349,12 @@ def student_detail(onyen: str, student_id: UUID) -> dict:
             FROM activity WHERE player_id=%s""", (student_id, student_id)).fetchone()
         return {"student": student, "runs": runs, "attempts": attempts, **totals,
                 "truncated": totals["attempts_total"] > 200 or totals["runs_total"] > 100}
+
+
+def clear_nickname(onyen: str, student_id: UUID) -> dict:
+    """The one change staff can make: an inappropriate nickname goes, and the student is Player <number> again."""
+    require_staff(onyen)
+    with connect() as conn:
+        if not conn.execute("UPDATE aa.players SET nickname=NULL WHERE id=%s", (student_id,)).rowcount:
+            raise HTTPException(404, "Student not found.")
+        return names(conn, student_id)

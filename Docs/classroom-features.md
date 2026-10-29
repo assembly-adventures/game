@@ -10,10 +10,34 @@ restore its previous pause state when closed.
 
 Mute, music volume, sound-effect volume, and hiding the leaderboard on this device
 persist in Godot's `user://` storage. Fullscreen requires a user gesture.
-**Show my Onyen on the leaderboard** is an account preference, enabled by default.
-Turning it off removes public entries from current and historical standings while
-preserving learning progress and staff statistics. The player can still see their
-own hidden result. Guest play has audio/display settings but no saved rankings.
+The nickname and **Show me on the leaderboard** are account preferences; the
+toggle is on by default. Turning it off removes public entries from current and
+historical standings while preserving learning progress and staff statistics.
+The player can still see their own hidden result. Guest play has audio/display
+settings but no nickname or saved rankings.
+
+## Nicknames
+
+The leaderboard never shows Onyens. Each entry shows the player's nickname, or
+`Player <number>` until they choose one. Players set a nickname in Settings; saving
+a blank one goes back to their number. The server tidies spacing and accepts a
+nickname only if it:
+
+- is 3 to 20 letters, numbers, spaces, hyphens, or underscores;
+- is not another player's nickname, ignoring case, or another player's Onyen, so
+  nobody can pose as a classmate;
+- does not look like `Player 12`, which is reserved for players without a nickname.
+
+Without a roster, only the Onyens of players who have signed in can be checked.
+So when someone signs in for the first time, any nickname matching their Onyen is
+cleared, and whoever took it goes back to their number.
+
+A player's number is assigned once, at their first sign-in; migration
+`0014_leaderboard_nicknames.sql` numbered existing players. Past weeks show
+players' current names. Staff see each student's leaderboard name beside their
+Onyen and can search by either. To remove an inappropriate nickname, open the
+student's page and choose **Clear nickname**; the student goes back to their
+number and can choose again.
 
 ## Weekly leaderboard
 
@@ -50,8 +74,9 @@ interactions that a modified client fails to report.
 `/admin` and every `/api/admin/*` route require the normal UNC session and an
 Onyen in the comma-separated `AA_STAFF_ONYENS` environment variable. Matching is
 case-insensitive and ignores surrounding spaces. An empty/missing list grants
-nobody access. TAs and professors have identical read access. The database's
-existing `role` field is not an alternative authorization path.
+nobody access. TAs and professors have identical access: everything is read-only
+except clearing a student's nickname. The database's existing `role` field is not
+an alternative authorization path.
 
 Authorized users see a **Staff dashboard** link in the Control Center. The server
 checks access independently of that link. Staff see all signed-in players,
@@ -70,7 +95,8 @@ the application pods to load it; the exact commands are in
   median attempts to first solve, and recorded mistakes.
 - Question details show the question's code, the most common answers marked
   correct or incorrect, and individual progress.
-- The searchable student directory opens run progress and recent answer history.
+- The student directory, searchable by Onyen or leaderboard name, opens run
+  progress and recent answer history.
 
 Answers appear as students saw them: option text, Level 1 instructions, Level 2
 program lines, or Level 3 moves (`Move 2: …`). Recorded option IDs are random in
@@ -94,6 +120,6 @@ The student directory is paginated.
 
 Run `server.test_reporting` and `server.test_admin_page` alongside the normal
 backend suite with an isolated `TEST_DATABASE_URL`. They cover authorization,
-privacy, retries, setbacks, best-run selection, ties, weekly/DST boundaries,
-legacy exclusion, and analytics denominators. See `development.md` for export
+privacy, nicknames, retries, setbacks, best-run selection, ties, weekly/DST
+boundaries, legacy exclusion, and analytics denominators. See `development.md` for export
 and browser checks.

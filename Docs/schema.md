@@ -84,6 +84,8 @@ login. There is no password column — the app delegates Onyen login to CSXL.
 | `onyen` | `citext`, unique. Case-insensitive so lookups need no `LOWER()` |
 | `pid` | 9-digit UNC person ID. **FERPA-sensitive** |
 | `role` | `student` / `instructor` / `admin` — the classroom hook |
+| `nickname` | `citext`, unique, null until chosen: the player's leaderboard name |
+| `player_number` | Identity, unique. Names a player without a nickname on the leaderboard (`Player 12`) |
 
 **Handling `pid`.** It is the only high-sensitivity column in the design. Never
 return it from the API, never write it to logs, and `REVOKE` it from any
@@ -97,6 +99,11 @@ so analytics queries never carry an identifier.
 access is controlled by `AA_STAFF_ONYENS`, independently of the legacy `role`
 column. Migration `0013_reporting_leaderboard.sql` adds `leaderboard_visible`
 (default true); hiding public rankings never hides progress from staff.
+Migration `0014_leaderboard_nicknames.sql` adds `nickname` and `player_number`, so
+the leaderboard never needs an Onyen. Sign-in updates an existing player before
+inserting a new one, because an upsert would use up a number on every sign-in. A
+first sign-in also clears any nickname equal to the new player's Onyen. See
+[classroom features](classroom-features.md#nicknames) for the nickname rules.
 
 That migration also adds `scoring_version`, `stars_total`, and `mistakes_total`
 to runs, plus `aa.question_events` for validated hints and walkthrough decisions.

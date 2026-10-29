@@ -17,8 +17,13 @@ STRIKES = 3  # Failed tries on a puzzle gate before the Chip Chomper drags the p
 def register_player(onyen: str, pid: str) -> None:
     """Store verified roster identifiers; identity never comes from gameplay JSON."""
     with connect() as conn:
-        conn.execute("""INSERT INTO aa.players(onyen,pid,last_seen_at) VALUES (%s,%s,now())
-            ON CONFLICT (onyen) DO UPDATE SET pid=excluded.pid,last_seen_at=now()""", (onyen, pid))
+        # Update first: an upsert would use up a player number, the default leaderboard name, on every sign-in.
+        if not conn.execute("UPDATE aa.players SET pid=%s,last_seen_at=now() WHERE onyen=%s", (pid, onyen)).rowcount:
+            # Nicknames can't be checked against Onyens nobody has signed in with yet. Whoever took
+            # this one as a nickname goes back to Player <number>.
+            conn.execute("UPDATE aa.players SET nickname=NULL WHERE nickname=%s", (onyen,))
+            conn.execute("""INSERT INTO aa.players(onyen,pid,last_seen_at) VALUES (%s,%s,now())
+                ON CONFLICT (onyen) DO UPDATE SET pid=excluded.pid,last_seen_at=now()""", (onyen, pid))
 
 
 def player(conn, onyen: str) -> dict:
@@ -38,11 +43,11 @@ def profile(conn, player_id: UUID) -> dict:
 
 
 def me(onyen: str) -> dict:
-    from .reporting import is_staff
+    from .reporting import is_staff, names
     with connect() as conn:
         who = player(conn, onyen)
-        return {"onyen": str(who["onyen"]), "is_staff": is_staff(onyen),
-                "leaderboard_visible": who["leaderboard_visible"], **profile(conn, who["id"])}
+        return {"onyen": str(who["onyen"]), "is_staff": is_staff(onyen), "leaderboard_visible": who["leaderboard_visible"],
+                **names(conn, who["id"]), **profile(conn, who["id"])}
 
 
 def levels(onyen: str) -> list[dict]:

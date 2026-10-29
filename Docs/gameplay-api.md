@@ -10,18 +10,22 @@ the game asks the player to reload and sign in again.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /api/me` | Onyen, active earned badges, progress, `is_staff`, and `leaderboard_visible` |
+| `GET /api/me` | Onyen, active earned badges, progress, `is_staff`, `leaderboard_visible`, `nickname` (null until chosen), and `leaderboard_name` (the nickname, or `Player <number>`) |
 | `GET /api/levels` | Availability, question counts, and completion flags |
 | `POST /api/runs` | `{level_id: 1, telemetry_version: 1}` starts or resumes a run; omitting the telemetry version creates a legacy, unranked run |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
 | `POST /api/runs/{id}/events` | Saves an idempotent hint or walkthrough-choice event; mistakes do not cause strikes |
-| `GET /api/leaderboard?level_id=1&week_offset=0` | Best completed run per visible player in an Eastern calendar week; offsets from -104 through 0 |
+| `GET /api/leaderboard?level_id=1&week_offset=0` | Best completed run per visible player in an Eastern calendar week, each under its leaderboard `name`, never an Onyen; offsets from -104 through 0 |
 | `POST /api/preferences` | `{leaderboard_visible: false}` hides the signed-in player's public current/historical entries |
+| `POST /api/nickname` | `{nickname: "Bit Wizard"}` sets the signed-in player's nickname, and `""` clears it; returns `nickname` and `leaderboard_name`. A taken nickname returns 409 and an invalid one 422 (rules in [classroom features](classroom-features.md#nicknames)) |
 
 Staff-only reads: `/api/admin/overview`, `/api/admin/levels/{id}`,
 `/api/admin/questions/{uuid}`, `/api/admin/students?q=onyen&limit=50&offset=0`,
-and `/api/admin/students/{uuid}`. Both the browser page at `/admin` and these
+and `/api/admin/students/{uuid}`. The one staff change is
+`POST /api/admin/students/{uuid}/clear-nickname`, which clears that student's
+nickname and returns their `nickname` (null) and `leaderboard_name`; like every
+POST, it needs `X-AA-Request: 1`. Both the browser page at `/admin` and these
 endpoints require a signed session and `AA_STAFF_ONYENS` authorization. They never
 return PID. See [classroom features](classroom-features.md) for metric definitions.
 
@@ -168,7 +172,7 @@ The finish response includes `passed`, badges, and progress. See
 | 401 | Missing, expired, or old session; reload and sign in |
 | 403 | POST header/origin check failed; submit from the game origin |
 | 404 | Unavailable level, unowned run, or question outside the run |
-| 409 | State conflict, incomplete run, or reused request ID with different content |
+| 409 | State conflict, incomplete run, taken nickname, or reused request ID with different content |
 | 422 | Invalid request or answer selection; allow the player to correct it |
 | 429 | Per-question limit of 1,000 recorded attempts reached |
 | 503 | Database/upstream failure or unsupported configuration; show the error and allow retry |
