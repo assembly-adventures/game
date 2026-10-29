@@ -78,8 +78,9 @@ nobody access. TAs and professors have identical access: everything is read-only
 except clearing a student's nickname. The database's existing `role` field is not
 an alternative authorization path.
 
-Authorized users see a **Staff dashboard** link in the Control Center. The server
-checks access independently of that link. Staff see all signed-in players,
+Authorized users see a **Staff dashboard** link in the Control Center. It opens
+the dashboard in the same tab, and the dashboard's **Back to game** loads the game
+again. The server checks access independently of that link. Staff see all signed-in players,
 including hidden leaderboard participants, but never PID. There are no roster,
 question-authoring, or staff-management forms.
 

@@ -122,8 +122,9 @@ func _footer() -> Control:
 	footer.add_child(guest_button)
 	staff_button = Button.new()
 	staff_button.text = "Staff dashboard"
-	staff_button.tooltip_text = "Class statistics and student progress (opens a browser tab)"
-	staff_button.pressed.connect(func(): OS.shell_open(PlayerData.api_base + "/admin"))
+	staff_button.tooltip_text = "Class statistics and student progress"
+	# The dashboard takes over this tab; its Back to game link loads the game again. Staff only exist on the web.
+	staff_button.pressed.connect(func(): JavaScriptBridge.eval("window.location.assign('/admin')"))
 	staff_button.hide()
 	footer.add_child(staff_button)
 	return footer

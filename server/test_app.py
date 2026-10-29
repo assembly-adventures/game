@@ -1,5 +1,6 @@
 """Exercise login and protection of every browser asset without live UNC tokens."""
 
+import gzip
 import os
 from pathlib import Path
 import tempfile
@@ -103,6 +104,55 @@ class LoginTests(unittest.TestCase):
         with patch.dict(os.environ, {"SESSION_SECRET": "short"}):
             with self.assertRaises(RuntimeError):
                 create_app()
+
+
+class GameFileTests(unittest.TestCase):
+    """Browsers keep the game's files and get the engine gzipped; nothing else is stored."""
+
+    ENGINE = b"\0asm" + bytes(range(256)) * 64
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        root.joinpath("index.html").write_text("game")
+        root.joinpath("index.pck").write_bytes(b"pack")  # No gzipped copy.
+        root.joinpath("index.wasm").write_bytes(self.ENGINE)
+        root.joinpath("index.wasm.gz").write_bytes(gzip.compress(self.ENGINE))
+        env = patch.dict(os.environ, {"APP_ORIGIN": "https://game.example",
+                                     "SESSION_SECRET": "s" * 48, "STATIC_DIR": self.temp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        self.client = TestClient(create_app(), base_url="https://game.example", follow_redirects=False)
+        self.addCleanup(self.client.close)
+        self.client.cookies.set(SESSION_COOKIE, URLSafeTimedSerializer("s" * 48, salt="aa-session-v1").dumps(
+            {"uid": "testonyen", "version": 2}))
+
+    def test_engine_is_gzipped_for_browsers_that_accept_it(self):
+        gzipped = self.client.get("/index.wasm", headers={"Accept-Encoding": "gzip, deflate, br"})
+        plain = self.client.get("/index.wasm", headers={"Accept-Encoding": "identity"})
+        self.assertEqual((gzipped.headers["content-encoding"], gzipped.content), ("gzip", self.ENGINE))
+        self.assertLess(int(gzipped.headers["content-length"]), len(self.ENGINE))
+        self.assertNotIn("content-encoding", plain.headers)
+        self.assertEqual(plain.content, self.ENGINE)
+        for response in (gzipped, plain):
+            self.assertEqual(response.headers["content-type"], "application/wasm")
+            self.assertEqual(response.headers["vary"], "Accept-Encoding")
+        pack = self.client.get("/index.pck", headers={"Accept-Encoding": "gzip"})
+        self.assertNotIn("content-encoding", pack.headers)
+        self.assertEqual(pack.content, b"pack")
+
+    def test_browsers_keep_game_files_but_check_for_new_ones(self):
+        for path in ("/", "/index.wasm", "/index.pck"):
+            with self.subTest(path=path):
+                first = self.client.get(path)
+                self.assertEqual(first.headers["cache-control"], "private, no-cache")
+                again = self.client.get(path, headers={"If-None-Match": first.headers["etag"]})
+                self.assertEqual((again.status_code, again.content), (304, b""))
+        self.assertEqual(self.client.get("/healthz").headers["cache-control"], "private, no-store")
+        self.client.cookies.clear()
+        redirect = self.client.get("/index.wasm")
+        self.assertEqual((redirect.status_code, redirect.headers["cache-control"]), (302, "private, no-store"))
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):

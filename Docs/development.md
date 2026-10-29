@@ -128,7 +128,7 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay (including the nickname) and weekly per-level standings |
 | `ui/learning_log.gd` | Durable hint/decision event queue, retried with stable request IDs |
 | `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
-| `server/app.py` | CSXL callback verification, signed session, protected static files |
+| `server/app.py` | CSXL callback verification, signed session, protected static files (browser-cached, largest gzipped) |
 | `server/api.py` | Request validation, authenticated endpoints, POST origin/header checks |
 | `server/gameplay.py` | Transactions, owned runs, attempt history, profile, badge awards |
 | `server/reporting.py`, `server/scoring.py`, `server/admin.html` | Staff statistics/access, weekly rankings, server-computed stars, and staff dashboard |

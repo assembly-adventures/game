@@ -29,6 +29,14 @@ The exporter stages a clean copy under ignored `build/`, switches that copy to
 Compatibility rendering, removes MCP editor/runtime services, and produces a
 single-threaded release in `build/web/`. It does not modify the desktop project.
 Database SQL and the reference question bank are not bundled in the release.
+
+The release is about 41 MB, nearly all of it the Godot engine (`index.wasm`).
+The image build (`infra/Dockerfile`) saves gzipped copies of `index.wasm`,
+`index.pck`, and `index.js`, about 11 MB together, and the app sends those to
+browsers that accept gzip. Browsers keep the game's files (`private, no-cache`)
+and check on each visit whether they changed, so a returning player downloads
+almost nothing, and a new deployment reaches everyone right away. API responses
+are never cached (`private, no-store`).
 See [Godot's web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).
 
 ## OpenShift terminal setup

@@ -182,6 +182,7 @@ same answer** so a committed attempt is not counted twice. After editing an
 answer, use a new request ID. The Godot client retains an uncertain submission
 and locks its choices until retry resolves it.
 
-Responses use private/no-store caching. The server does not expose Swagger or
-OpenAPI routes. `/healthz` is public and returns `ok`; it is a process health
-check, not a database connectivity check.
+API responses use private/no-store caching; only the game's own files may be
+kept by the browser ([browser release](../infra/README.md#browser-release)). The
+server does not expose Swagger or OpenAPI routes. `/healthz` is public and returns
+`ok`; it is a process health check, not a database connectivity check.
