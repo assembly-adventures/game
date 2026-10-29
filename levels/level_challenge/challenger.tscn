@@ -1,7 +1,0 @@
-[gd_scene format=3 uid="uid://cvalpholg3j33"]
-
-[ext_resource type="PackedScene" uid="uid://ca8oxrx8f2iul" path="res://levels/HUD.tscn" id="1_v1syk"]
-
-[node name="Challenger" type="Node2D" unique_id=2134836877]
-
-[node name="Hud" parent="." unique_id=1489020385 instance=ExtResource("1_v1syk")]

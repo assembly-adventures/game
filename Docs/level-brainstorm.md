@@ -145,14 +145,21 @@ values ("Call triple: ra = 0x10C, the address of the next line, then jump").
 Notes on key lines add the why.
 
 When the walk reaches a move, it stops and the student makes it: the call, what
-a frame saves, where to keep a value across a call, the base case. A good move
-is written into the program (in blue) and the walk goes on. A wrong move plays
-out on the tower at speed, so students see exactly what breaks (`ra` lost and
-the function returning to itself forever, the Chomper's `s0` changed, the tower
-running off the bottom of the stack), then the caption explains why and the room
-rewinds to the move. Wrong moves cost a star, never a strike. When the program
-returns, the Chip Chomper checks the contract (the right value back in `a0`, the
-`s` registers and `sp` as it left them) and the gate opens.
+a frame saves, where to keep a value across a call, the base case. The move's
+place in the listing opens into a gold slot, and a bank of code blocks appears
+under the question, one per option in shuffled order. Each block shows only the
+code it writes: a frame's block is its prologue (the matching epilogue comes
+with it), and a move that writes nothing is a dashed "(add nothing)" block. The
+student drags one block into the slot; the slot takes only that move's blocks,
+and a block let go anywhere else goes back to the bank. Number keys place the
+same blocks from the keyboard. A good move is written into the program (in
+blue) and the walk goes on. A wrong move plays out on the tower at speed, so
+students see exactly what breaks (`ra` lost and the function returning to itself
+forever, the Chomper's `s0` changed, the tower running off the bottom of the
+stack), then the caption explains why and the room rewinds to the move. Wrong
+moves cost a star, never a strike. When the program returns, the Chip Chomper
+checks the contract (the right value back in `a0`, the `s` registers and `sp` as
+it left them) and the gate opens.
 
 | Room | Title | Program | The student's move | What it shows |
 | --- | --- | --- | --- | --- |

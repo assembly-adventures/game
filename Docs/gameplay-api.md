@@ -10,11 +10,35 @@ the game asks the player to reload and sign in again.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /api/me` | Onyen, active earned badges, badge total, and progress ratio |
+| `GET /api/me` | Onyen, active earned badges, progress, `is_staff`, `leaderboard_visible`, `nickname` (null until chosen), and `leaderboard_name` (the nickname, or `Player <number>`) |
 | `GET /api/levels` | Availability, question counts, and completion flags |
-| `POST /api/runs` | `{level_id: 1}` starts or resumes the player's active run of an active level (1 to 3) |
+| `POST /api/runs` | `{level_id: 1, telemetry_version: 1}` starts or resumes a run; omitting the telemetry version creates a legacy, unranked run |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
+| `POST /api/runs/{id}/events` | Saves an idempotent hint or walkthrough-choice event; mistakes do not cause strikes |
+| `GET /api/leaderboard?level_id=1&week_offset=0` | Best completed run per visible player in an Eastern calendar week, each under its leaderboard `name`, never an Onyen; offsets from -104 through 0 |
+| `POST /api/preferences` | `{leaderboard_visible: false}` hides the signed-in player's public current/historical entries |
+| `POST /api/nickname` | `{nickname: "Bit Wizard"}` sets the signed-in player's nickname, and `""` clears it; returns `nickname` and `leaderboard_name`. A taken nickname returns 409 and an invalid one 422 (rules in [classroom features](classroom-features.md#nicknames)) |
+
+Staff-only reads: `/api/admin/overview`, `/api/admin/levels/{id}`,
+`/api/admin/questions/{uuid}`, `/api/admin/students?q=onyen&limit=50&offset=0`,
+and `/api/admin/students/{uuid}`. The one staff change is
+`POST /api/admin/students/{uuid}/clear-nickname`, which clears that student's
+nickname and returns their `nickname` (null) and `leaderboard_name`; like every
+POST, it needs `X-AA-Request: 1`. Both the browser page at `/admin` and these
+endpoints require a signed session and `AA_STAFF_ONYENS` authorization. They never
+return PID. See [classroom features](classroom-features.md) for metric definitions.
+
+An event has `question_id`, `request_id`, and `kind`. Hint events use
+`{"kind":"hint"}`; walkthrough events use
+`{"kind":"walk_choice","moment":0,"choice":1}` with indexes into the frozen
+question. The server validates and determines correctness. Retry the same event
+with the same request ID; changing its payload returns 409. Events on another
+player's run return 404. New events on finished runs or solved gates return 409.
+Question statistics contain `mistakes`, `hint_used`, and `stars` (null until solved).
+Runs return these keyed by question ID in `question_stats`, plus
+`leaderboard_eligible`; attempts return the affected question's statistics and
+stars. Finish returns total `stars`, `mistakes`, `max_stars`, and eligibility.
 
 Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 `solved_question_ids`, and `strikes` (failed tries so far on unsolved puzzle
@@ -87,12 +111,9 @@ at each of the room's moments, in code order:
 The server writes the picked moves into the program and runs every one of the
 Chip Chomper's calls, which must return the expected value with `s0`-`s11` and
 `sp` as the Chomper set them. A wrong set of moves is a miss like any other, but
-the game never sends one: it plays a wrong move out on screen and rewinds it, so
+the game records it as a `walk_choice` event instead of an answer: it plays a wrong move out and rewinds, so
 students see what breaks without a strike. Anything that isn't one valid option
-per moment returns 422. Runs started before the walkthroughs keep their earlier
-rooms, which still take a frame (`{"frame": ["s0", "ra"]}`), typed values
-(`{"values": [9, 4, 1]}`), or a line and a rule
-(`{"line": 256, "clause": "callee-save"}`).
+per moment returns 422.
 
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when
@@ -151,7 +172,7 @@ The finish response includes `passed`, badges, and progress. See
 | 401 | Missing, expired, or old session; reload and sign in |
 | 403 | POST header/origin check failed; submit from the game origin |
 | 404 | Unavailable level, unowned run, or question outside the run |
-| 409 | State conflict, incomplete run, or reused request ID with different content |
+| 409 | State conflict, incomplete run, taken nickname, or reused request ID with different content |
 | 422 | Invalid request or answer selection; allow the player to correct it |
 | 429 | Per-question limit of 1,000 recorded attempts reached |
 | 503 | Database/upstream failure or unsupported configuration; show the error and allow retry |
@@ -161,6 +182,7 @@ same answer** so a committed attempt is not counted twice. After editing an
 answer, use a new request ID. The Godot client retains an uncertain submission
 and locks its choices until retry resolves it.
 
-Responses use private/no-store caching. The server does not expose Swagger or
-OpenAPI routes. `/healthz` is public and returns `ok`; it is a process health
-check, not a database connectivity check.
+API responses use private/no-store caching; only the game's own files may be
+kept by the browser ([browser release](../infra/README.md#browser-release)). The
+server does not expose Swagger or OpenAPI routes. `/healthz` is public and returns
+`ok`; it is a process health check, not a database connectivity check.

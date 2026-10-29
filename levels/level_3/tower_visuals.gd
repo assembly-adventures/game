@@ -20,26 +20,35 @@ const STACK_TOP := 0x7FF0
 const JUNK := 0xDEADBEEF
 
 
-## The program, one instruction every 4 bytes, labels on rows of their own. Lines a frame room's
-## layout wrote are tinted and tagged, and while the frame is empty a dim row marks where they will
-## go. The running line glows; in a Code Lawyer room any line can be clicked to accuse it.
+## The program, one instruction every 4 bytes, labels on rows of their own. Lines a frame move
+## wrote are tinted and tagged, and while the frame is empty a dim row marks where its epilogue will
+## go. The running line glows. While a walkthrough waits for a move, its slot opens into a gold drop
+## zone for a block from the bank.
 class ListingView extends Control:
-	signal line_clicked(address: int)
+	signal move_dropped(option: int)  # A bank block landed in the drop zone.
+	signal drag_ended(dropped: bool)  # A bank block was let go, in the drop zone or anywhere else.
 	const TOP := 22.0
 	const LEFT := 4.0
 	var row_height := 17.0  # Shrinks (down to 12) so a long program fits the space it has.
 	const TEXT_X := 64.0
-	const SLOTS := {"prologue": "(prologue: nothing saved yet)", "epilogue": "(epilogue: nothing restored yet)",
-		"moment": "(your move goes here)"}
-	var rows: Array = []  # {"kind": "label"/"line"/"slot", "text", "address", "part"}
+	const DROP_ROWS := 2.4  # The drop zone's height, in lines.
+	const SLOTS := {"epilogue": "(epilogue: nothing restored yet)", "moment": "(your move goes here)"}
+	var rows: Array = []  # {"kind": "label"/"line"/"slot", "text", "address", "part", and a move's "moment"}
 	var note := "one instruction every 4 bytes"  # Beside the CODE heading.
-	var step := 0  # When the listing is where a numbered step happens, its number (drawn before the note).
 	var running := -1
-	var waiting := false  # A walkthrough is waiting for the move its slot stands for: the slot glows.
-	var selectable := false
-	var selected := -1
-	var marks := {}  # Address → colour, for a verdict's lines.
-	var hover := -1
+	var waiting := -1:  # The moment a walkthrough waits on, whose slot is the drop zone; -1 for none.
+		set(value):
+			waiting = value
+			_fit()
+			queue_redraw()
+	var dragging := false  # A bank block is in the air: the drop zone lights up.
+	var over := false  # It's over the drop zone.
+	var nudge := 0.0:  # Flashes the drop zone, when a block is clicked instead of dragged.
+		set(value):
+			nudge = value
+			queue_redraw()
+	var drop_note := ""  # A smaller line in the drop zone, under what to do.
+	var marks := {}  # Address → colour, for the lines a wrong move wrote.
 	var win := 0.0
 
 	func _init() -> void:
@@ -54,17 +63,18 @@ class ListingView extends Control:
 			if not at.has(address):
 				at[address] = []
 			at[address].append(str(name))
-		var empty := {}  # Line index → the frame parts that would be written there but are empty.
+		var empty := {}  # Line index → the slots there: empty frame parts, and moves not made yet.
 		for slot in built.get("slots", []):
 			if not empty.has(int(slot.at)):
 				empty[int(slot.at)] = []
-			empty[int(slot.at)].append(str(slot.part))
+			empty[int(slot.at)].append(slot)
 		for k in range(built.lines.size() + 1):
 			var address := CODE_BASE + 4 * k
 			for name in at.get(address, []):
 				rows.append({"kind": "label", "text": name + ":"})
-			for part in empty.get(k, []):
-				rows.append({"kind": "slot", "text": SLOTS[part], "part": part})
+			for slot in empty.get(k, []):
+				rows.append({"kind": "slot", "text": SLOTS[str(slot.part)], "part": str(slot.part),
+					"moment": int(slot.get("moment", -1))})
 			if k < built.lines.size():
 				rows.append({"kind": "line", "text": str(built.lines[k]), "address": address, "part": str(built.parts[k])})
 		_fit()
@@ -72,12 +82,28 @@ class ListingView extends Control:
 
 	func _fit() -> void:
 		var weight := 0.0
-		for row in rows:
-			weight += 1.0 if row.kind == "line" else 0.85
+		for i in range(rows.size()):
+			weight += _weight(i)
 		row_height = clampf((size.y - TOP - 8) / maxf(weight, 1.0), 12.0, 17.0)
 
+	## A row's height in lines: labels and slots are a little shorter than code, and the drop zone taller.
+	func _weight(i: int) -> float:
+		if _is_drop(i):
+			return DROP_ROWS
+		return 1.0 if rows[i].kind == "line" else 0.85
+
 	func _height(i: int) -> float:
-		return row_height * (1.0 if rows[i].kind == "line" else 0.85)
+		return row_height * _weight(i)
+
+	func _is_drop(i: int) -> bool:
+		return waiting >= 0 and rows[i].kind == "slot" and int(rows[i].get("moment", -1)) == waiting
+
+	## Where a bank block can land: the slot the walk waits on (empty when it waits on none).
+	func drop_rect() -> Rect2:
+		for i in range(rows.size()):
+			if _is_drop(i):
+				return Rect2(Vector2(LEFT + 2, row_y(i) + 1), Vector2(size.x - LEFT - 4, _height(i) - 2))
+		return Rect2()
 
 	func row_y(i: int) -> float:
 		var y := TOP
@@ -85,48 +111,39 @@ class ListingView extends Control:
 			y += _height(k)
 		return y
 
-	func row_of(address: int) -> int:
-		for i in range(rows.size()):
-			if rows[i].kind == "line" and int(rows[i].address) == address:
-				return i
-		return -1
-
-	func _row_at(y: float) -> int:
-		for i in range(rows.size()):
-			if y >= row_y(i) and y < row_y(i) + _height(i):
-				return i
-		return -1
-
-	func _gui_input(event: InputEvent) -> void:
-		if not selectable:
-			return
-		if event is InputEventMouseMotion:
-			var row := _row_at(event.position.y)
-			hover = row if row >= 0 and rows[row].kind == "line" else -1
-			mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if hover >= 0 else Control.CURSOR_ARROW
+	## A bank block lands only in the drop zone (or just around it), and only for the move it's for.
+	func _can_drop_data(at_position: Vector2, data: Variant) -> bool:
+		var fits: bool = data is Dictionary and data.has("move") and int(data.moment) == waiting \
+			and drop_rect().grow(6).has_point(at_position)
+		if fits != over:
+			over = fits
 			queue_redraw()
-		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			var row := _row_at(event.position.y)
-			if row >= 0 and rows[row].kind == "line":
-				line_clicked.emit(int(rows[row].address))
-				accept_event()
+		return fits
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		over = false
+		move_dropped.emit(int(data.move))
 
 	func _notification(what: int) -> void:
-		if what == NOTIFICATION_MOUSE_EXIT and hover >= 0:
-			hover = -1
+		if what == NOTIFICATION_MOUSE_EXIT and over:
+			over = false
 			queue_redraw()
 		elif what == NOTIFICATION_RESIZED:
 			_fit()
+		elif what == NOTIFICATION_DRAG_BEGIN:
+			var data = get_viewport().gui_get_drag_data()
+			dragging = data is Dictionary and data.has("move")
+			queue_redraw()
+		elif what == NOTIFICATION_DRAG_END and dragging:
+			dragging = false
+			over = false
+			queue_redraw()
+			drag_ended.emit(get_viewport().gui_is_drag_successful())
 
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		draw_string(font, Vector2(LEFT, 14), "CODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
-		var note_x := LEFT + 42
-		if step > 0:
-			Style.draw_step_badge(self, Vector2(note_x + 9.5, 9), step)
-			note_x += 26
-		draw_string(font, Vector2(note_x, 14), note, HORIZONTAL_ALIGNMENT_LEFT, size.x - note_x - 4, 14 if step > 0 else 12,
-			Color(TEXT, 0.92) if step > 0 else Color(TEXT, 0.3))
+		draw_string(font, Vector2(LEFT + 42, 14), note, HORIZONTAL_ALIGNMENT_LEFT, size.x - LEFT - 46, 12, Color(TEXT, 0.3))
 		Style.rounded(self, Rect2(Vector2(LEFT, TOP - 4), Vector2(size.x - LEFT, row_y(rows.size()) - TOP + 8)),
 			Color(0, 0, 0, 0.25).lerp(Color(GREEN, 0.12), win), 8, Color(TEXT, 0.1).lerp(GREEN, win), 1)
 		var tagged := {}
@@ -141,23 +158,18 @@ class ListingView extends Control:
 					Color(PURPLE, 0.95))
 				continue
 			if row.kind == "slot":
-				var glowing: bool = waiting and row.part == "moment"
-				if glowing:
-					Style.rounded(self, Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, _height(i) - 2)),
-						Color(GOLD, 0.16), 5, GOLD, 2)
+				if _is_drop(i):
+					_draw_drop(font, code_size)
+					continue
 				draw_string(font, Vector2(TEXT_X, y + baseline * 0.85), row.text, HORIZONTAL_ALIGNMENT_LEFT,
-					size.x - TEXT_X - 8, address_size + 1, GOLD if glowing else Color(CYAN, 0.6))
+					size.x - TEXT_X - 8, address_size + 1, Color(CYAN, 0.6))
 				continue
 			var address := int(row.address)
 			var band := Rect2(Vector2(LEFT + 2, y + 1), Vector2(size.x - LEFT - 4, row_height - 2))
 			if marks.has(address):
 				Style.rounded(self, band, Color(marks[address], 0.18), 5, marks[address], 2)
-			elif address == selected:
-				Style.rounded(self, band, Color(RED, 0.16), 5, RED, 2)
 			elif address == running:
 				Style.rounded(self, band, Color(GOLD, 0.22), 5)
-			elif i == hover:
-				Style.rounded(self, band, Color(TEXT, 0.06), 5, Color(TEXT, 0.25), 1)
 			var generated: bool = row.part != "body"
 			draw_string(MONO, Vector2(LEFT + 8, y + baseline), "0x%X" % address, HORIZONTAL_ALIGNMENT_LEFT, -1, address_size,
 				GOLD if address == running else Color(TEXT, 0.35))
@@ -168,31 +180,38 @@ class ListingView extends Control:
 				draw_string(font, Vector2(0, y + baseline), row.part, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 10, address_size,
 					Color(CYAN, 0.7))
 
+	## The drop zone: a dashed gold outline while it waits, solid once a block is in the air, and
+	## brightest with one over it.
+	func _draw_drop(font: Font, font_size: int) -> void:
+		var rect := drop_rect()
+		var lit := 1.0 if over else 0.6 if dragging else nudge
+		Style.rounded(self, rect, Color(GOLD, 0.08 + 0.22 * lit), 6, GOLD.lightened(0.3) if over else GOLD,
+			3 if over else 2 if dragging else 0)
+		if not dragging:
+			Style.dashed_box(self, rect.grow(-1), GOLD)
+		var text := "let go to write it here" if over else "drop it here" if dragging else "drag a block here"
+		var baseline := rect.get_center().y + font_size * 0.35
+		if not drop_note.is_empty():
+			baseline -= font_size * 0.5
+			draw_string(font, Vector2(rect.position.x, baseline + font_size), drop_note, HORIZONTAL_ALIGNMENT_CENTER,
+				rect.size.x, font_size - 2, Color(GOLD, 0.75))
+		draw_string(font, Vector2(rect.position.x, baseline), text, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, font_size + 1,
+			GOLD.lightened(0.3) if over else GOLD)
+
 
 ## The stack as a tower of floors hanging from the top of memory: the Chomper (the caller) at the
 ## ceiling, then one floor per call that is still running, each with its words (address, what is
 ## saved there, and its value). sp is the elevator: the robot stands beside the word it points
 ## to. In the finale the heap climbs from the bottom of the stack with the Chomper on top.
-##
-## Before a Frame Builder run the tower shows the frame being built instead ("design"): one slot
-## per block, sp+0 at the bottom, with buttons to move a block up or down or take it out.
 class TowerView extends Control:
-	signal slot_action(index: int, action: String)
 	const TOP := 22.0
 	const LEFT := 40.0
-	const DESIGN_ROW := 26.0
-	var mode := "live"
 	var caller := "the Chip Chomper"
 	var floors: Array = []  # {"title", "words": [{"address", "label", "value"}], "current"}
 	var sp := STACK_TOP
 	var bottom := -1  # The lowest stack word, drawn in the finale so the heap shows.
 	var heap := -1  # Words below this address are the heap's.
-	var design: Array = []  # The frame being built: block names, sp+0 first.
-	var design_title := ""
-	var design_room := 0  # How many blocks the frame can hold.
-	var read_back := {}  # Block name → true for blocks the code reads back rather than restores.
 	var flashes := {}
-	var hover := ""
 	var robot
 	var chomper
 	var robot_y := -1.0
@@ -214,19 +233,10 @@ class TowerView extends Control:
 
 	## Shows the stack as a run left it: the open calls, the words between them, and sp.
 	func show_live(open_floors: Array, stack_pointer: int, heap_address: int = -1) -> void:
-		mode = "live"
 		floors = open_floors
 		sp = stack_pointer
 		heap = heap_address
 		_place_robot(0.12)
-		queue_redraw()
-
-	func show_design(frame: Array, title: String, room: int) -> void:
-		mode = "design"
-		design = frame
-		design_title = title
-		design_room = room
-		_place_robot(0.15)
 		queue_redraw()
 
 	func flash(address: int) -> void:
@@ -291,8 +301,6 @@ class TowerView extends Control:
 
 	## The y of the row the robot should stand on: sp's word, or the floor it belongs to.
 	func _sp_y() -> float:
-		if mode == "design":
-			return TOP + DESIGN_ROW * (2 + design.size()) - DESIGN_ROW / 2.0 if not design.is_empty() else TOP + DESIGN_ROW * 1.5
 		var rows := _live_rows()
 		var unit := _unit(rows)
 		var tops := _tops(rows, unit)
@@ -322,12 +330,12 @@ class TowerView extends Control:
 		message_alpha = move_toward(message_alpha, 0.0, delta * 0.4)
 		for key in flashes.keys():
 			flashes[key] = move_toward(flashes[key], 0.0, delta * 1.8)
-		var rows := _live_rows() if mode == "live" else []
-		var h := _unit(rows) if mode == "live" else DESIGN_ROW
+		var rows := _live_rows()
+		var h := _unit(rows)
 		robot.scale = Vector2.ONE * clampf(h / 30.0, 0.32, 0.5)
 		robot.position = Vector2(12, robot_y + h * 0.42)
 		robot.walking = glide != null and glide.is_running()
-		chomper.visible = mode == "live" and bottom >= 0 and heap >= 0
+		chomper.visible = bottom >= 0 and heap >= 0
 		if chomper.visible:
 			var tops := _tops(rows, h)
 			var y := TOP
@@ -340,55 +348,13 @@ class TowerView extends Control:
 			chomper.mouth = 0.8
 		queue_redraw()
 
-	func _gui_input(event: InputEvent) -> void:
-		if mode != "design":
-			return
-		if event is InputEventMouseMotion:
-			hover = _control_at(event.position)
-		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			var hit := _control_at(event.position)
-			if not hit.is_empty():
-				slot_action.emit(int(hit.get_slice(":", 0)), hit.get_slice(":", 1))
-				accept_event()
-
-	func _notification(what: int) -> void:
-		if what == NOTIFICATION_MOUSE_EXIT:
-			hover = ""
-
-	## The design row of block k (sp+4k), top to bottom from the highest offset.
-	func _slot_rect(k: int) -> Rect2:
-		var row := 2 + (design.size() - 1 - k)
-		return Rect2(Vector2(LEFT + 6, TOP + DESIGN_ROW * row + 2), Vector2(size.x - LEFT - 10, DESIGN_ROW - 4))
-
-	func _controls(k: int) -> Dictionary:
-		var rect := _slot_rect(k)
-		var y := rect.position.y + 3
-		var right := rect.end.x - 4
-		return {"remove": Rect2(Vector2(right - 20, y), Vector2(20, 16)),
-			"down": Rect2(Vector2(right - 44, y), Vector2(20, 16)),
-			"up": Rect2(Vector2(right - 68, y), Vector2(20, 16))}
-
-	func _control_at(point: Vector2) -> String:
-		for k in range(design.size()):
-			var buttons := _controls(k)
-			for action in buttons:
-				if buttons[action].has_point(point) and _control_enabled(k, action):
-					return "%d:%s" % [k, action]
-		return ""
-
-	func _control_enabled(k: int, action: String) -> bool:
-		return action == "remove" or action == "up" and k < design.size() - 1 or action == "down" and k > 0
-
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		draw_string(font, Vector2(LEFT, 14), "STACK", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(TEXT, 0.5))
 		draw_string(MONO, Vector2(LEFT + 48, 14), "top 0x%X · grows down" % STACK_TOP, HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
 			Color(TEXT, 0.3))
 		draw_line(Vector2(LEFT, TOP - 2), Vector2(size.x - 4, TOP - 2), Color(TEXT, 0.35), 2)
-		if mode == "design":
-			_draw_design(font)
-		else:
-			_draw_live(font)
+		_draw_live(font)
 		if message_alpha > 0.0:
 			var alpha := minf(1.0, message_alpha * 2.0)
 			var lines := _wrap(font, message, size.x - 48, 14)  # The box's width less its margins.
@@ -477,39 +443,3 @@ class TowerView extends Control:
 				free += int(row.kind == "free")
 			draw_string(MONO, Vector2(0, size.y - 4), "%d free words above the heap" % free, HORIZONTAL_ALIGNMENT_RIGHT,
 				size.x - 6, 11, ORANGE if free < 4 else Color(TEXT, 0.45))
-
-	func _draw_design(font: Font) -> void:
-		_draw_caller(font, Rect2(Vector2(LEFT, TOP + 2), Vector2(size.x - LEFT - 4, DESIGN_ROW - 4)))
-		var header := Rect2(Vector2(LEFT, TOP + DESIGN_ROW + 2), Vector2(size.x - LEFT - 4, DESIGN_ROW - 4))
-		Style.rounded(self, header, Color(GOLD, 0.14), 5, Color(GOLD, 0.6), 1)
-		draw_string(MONO, header.position + Vector2(8, 16), design_title, HORIZONTAL_ALIGNMENT_LEFT, header.size.x - 120, 12,
-			GOLD.lightened(0.3))
-		draw_string(MONO, header.position + Vector2(0, 16), "%d bytes" % (4 * design.size()) if not design.is_empty()
-			else "no frame", HORIZONTAL_ALIGNMENT_RIGHT, header.size.x - 8, 11, Color(TEXT, 0.55))
-		for k in range(design.size()):
-			var rect := _slot_rect(k)
-			var name := str(design[k])
-			var back: bool = read_back.has(name)
-			var color := PURPLE if back else CYAN
-			Style.rounded(self, rect, Color("161d2a"), 5, Color(color, 0.6), 1)
-			draw_string(MONO, rect.position + Vector2(8, 15), "sp+%d" % (4 * k), HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
-				Color(TEXT, 0.45))
-			draw_string(MONO, rect.position + Vector2(54, 15), name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color.lightened(0.25))
-			draw_string(font, rect.position + Vector2(92, 15), "read back" if back else "saved, restored", HORIZONTAL_ALIGNMENT_LEFT,
-				rect.size.x - 170, 11, Color(TEXT, 0.45))
-			var buttons := _controls(k)
-			for action in buttons:
-				var enabled := _control_enabled(k, action)
-				var lit := hover == "%d:%s" % [k, action]
-				var button: Rect2 = buttons[action]
-				Style.rounded(self, button, Color(TEXT, 0.12 if lit else 0.05), 4, Color(TEXT, 0.35 if enabled else 0.1), 1)
-				var glyph: String = {"up": "▲", "down": "▼", "remove": "×"}[action]
-				draw_string(font, button.position + Vector2(0, 13), glyph, HORIZONTAL_ALIGNMENT_CENTER, button.size.x, 11,
-					Color(TEXT, 0.85 if enabled else 0.2) if action != "remove" else Color(RED, 0.9 if enabled else 0.2))
-		var spare := Rect2(Vector2(LEFT + 6, TOP + DESIGN_ROW * (2 + design.size()) + 2), Vector2(size.x - LEFT - 10, DESIGN_ROW - 4))
-		if design.size() < design_room:
-			draw_dashed_line(spare.position, Vector2(spare.end.x, spare.position.y), Color(GOLD, 0.35), 1.0, 5.0)
-			draw_string(font, spare.position + Vector2(8, 16), "click a register on the right to save it here",
-				HORIZONTAL_ALIGNMENT_LEFT, spare.size.x - 16, 12, Color(GOLD, 0.7))
-		var y := _sp_y()
-		draw_string(MONO, Vector2(23, y + 4), "sp", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, CYAN)

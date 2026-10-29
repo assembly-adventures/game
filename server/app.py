@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 import httpx
@@ -16,6 +16,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from .api import router
 from .gameplay import register_player
+from .reporting import require_staff
 
 SESSION_COOKIE = "__Host-aa-session"
 LOGIN_COOKIE = "__Host-aa-login"
@@ -54,7 +55,10 @@ def create_app() -> FastAPI:
         raise RuntimeError("SESSION_SECRET must contain at least 32 random characters")
     sessions = URLSafeTimedSerializer(secret, salt="aa-session-v1")
     logins = URLSafeTimedSerializer(secret, salt="aa-login-v1")
-    static = StaticFiles(directory=Path(os.environ.get("STATIC_DIR", "build/web")), html=True)
+    static_dir = Path(os.environ.get("STATIC_DIR", "build/web"))
+    static = StaticFiles(directory=static_dir, html=True)
+    # The image build gzips the largest files (infra/Dockerfile): the engine alone is 40 MB, 10 MB gzipped.
+    gzipped = {name for name in ("index.wasm", "index.pck", "index.js") if (static_dir / f"{name}.gz").is_file()}
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     def authenticate(request: Request) -> str:
@@ -75,7 +79,8 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def private_responses(request: Request, call_next):
         response = await call_next(request)
-        response.headers["Cache-Control"] = "private, no-store"
+        # Only the game's own files set their caching; nothing else, player data included, is ever stored.
+        response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -115,12 +120,37 @@ def create_app() -> FastAPI:
 
     app.include_router(router(authenticate, origin))
 
+    @app.api_route("/admin", methods=["GET", "HEAD"])
+    def admin(request: Request) -> Response:
+        # A hidden navigation link is only a convenience. Authorize the page itself,
+        # and the reporting API independently, using the verified session identity.
+        require_staff(authenticate(request))
+        response = HTMLResponse(Path(__file__).with_name("admin.html").read_text())
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+        return response
+
     @app.api_route("/{path:path}", methods=["GET", "HEAD"])
     async def game(request: Request, path: str) -> Response:
         try:
             authenticate(request)
         except HTTPException:
             return RedirectResponse("/auth/login", status_code=302)
-        return await static.get_response(path or "index.html", request.scope)
+        path = path or "index.html"
+        if path in gzipped and "gzip" in request.headers.get("accept-encoding", ""):
+            # Typed like the original: guess_type ignores the .gz.
+            response = await static.get_response(f"{path}.gz", request.scope)
+            response.headers["Content-Encoding"] = "gzip"
+        else:
+            response = await static.get_response(path, request.scope)
+        if path in gzipped:
+            response.headers["Vary"] = "Accept-Encoding"
+        # The game's files are the same for every player, so browsers keep them and ask on each visit
+        # whether they changed (ETag). A deploy still reaches everyone straight away.
+        response.headers["Cache-Control"] = "private, no-cache"
+        return response
 
     return app

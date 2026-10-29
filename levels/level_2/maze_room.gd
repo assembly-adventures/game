@@ -10,6 +10,7 @@ extends RefCounted
 ## server replays the program and has the final say.
 
 signal attempt
+signal learning_event(kind: String, detail: Dictionary)
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const MazeVisuals := preload("res://levels/level_2/maze_visuals.gd")
@@ -168,6 +169,7 @@ func show_hint() -> void:
 	if hint.is_empty() or hint_used:
 		return
 	hint_used = true
+	learning_event.emit("hint", {})
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
 	hint_button.modulate = Color.WHITE
@@ -184,7 +186,7 @@ func failed() -> void:
 	fails += 1
 	listing.shake = 8.0
 	board.flash_message("OUT OF INSTRUCTIONS", Style.RED)
-	await board.get_tree().create_timer(0.9).timeout
+	await board.get_tree().create_timer(0.9, false).timeout
 	if not is_instance_valid(board):
 		return
 	reset()
@@ -232,7 +234,7 @@ func _write(line: String) -> void:
 	if goal_met(payload, state) or _count() >= int(payload.max_moves):
 		locked = true
 		_sync()
-		await board.get_tree().create_timer(0.45).timeout
+		await board.get_tree().create_timer(0.45, false).timeout
 		if is_instance_valid(board):
 			attempt.emit()
 		return
@@ -261,7 +263,7 @@ func _play(steps: Array) -> void:
 			Audio.play("chomp", -16.0, 0.1)
 		elif steps.size() > 1:
 			Audio.play("press", -16.0, 0.25)
-		await board.get_tree().create_timer(duration).timeout
+		await board.get_tree().create_timer(duration, false).timeout
 
 ## Shows why the last action would crash, then puts everything back the way it was.
 func _refuse(after: Dictionary, before: Dictionary) -> void:
@@ -271,7 +273,7 @@ func _refuse(after: Dictionary, before: Dictionary) -> void:
 	board.fault(message, int(after.cell))
 	listing.shake = 6.0
 	Audio.play("overflow", -4.0)
-	await board.get_tree().create_timer(1.5).timeout
+	await board.get_tree().create_timer(1.5, false).timeout
 	if not is_instance_valid(board):
 		return
 	listing.stop()

@@ -6,10 +6,11 @@ extends "res://levels/level_3/tower_room.gd"
 ## Step and Back move a line at a time.
 ##
 ## At each of its moments the walk stops for the student's move (a call, a stack frame, where to
-## keep a value, a base case). A good move is written into the program and the walk goes on. A
-## wrong one plays out on the tower, shows what broke and why, and rewinds: it costs a star, never
-## a strike. When the program gets back to the Chomper with the contract kept, the moves made are
-## the attempt.
+## keep a value, a base case): the side panel shows a bank of code blocks, one per option, and the
+## student drags one into the gold slot in the listing. A good move is written into the program and
+## the walk goes on. A wrong one plays out on the tower, shows what broke and why, and rewinds: it
+## costs a star, never a strike. When the program gets back to the Chomper with the contract kept,
+## the moves made are the attempt.
 
 const MazeVisuals := preload("res://levels/level_2/maze_visuals.gd")
 ## How long Play leaves a line up: a base, plus time for every character of its caption and note,
@@ -24,6 +25,7 @@ const SHOWN := 45  ## Lines of a wrong move played out before it jumps to how it
 const CAPTIONS := {"a0": "arg", "ra": "way back", "sp": "stack", "s0": "kept", "s1": "kept", "t0": "temp"}
 
 var choices: Array = []  # The option picked at each moment; -1 until the move is made.
+var order: Array = []  # Each moment's options in the order its bank shows them, shuffled once per room.
 var walk := {}  # The program with the moves made so far, run until the next move or the end, and
                 # how many of its lines ("at") have run on screen.
 var trying := {}  # A wrong move playing out: its moment, option, program, run, "at", and "done".
@@ -41,7 +43,7 @@ var header: Label
 var line_label: Label
 var body: Label
 var note_label: Label
-var choice_box: VBoxContainer
+var bank: HFlowContainer  # The move's blocks, waiting to be dragged into the slot.
 var rewind_button: Button
 var read_bar: ProgressBar  # While Play runs: fills over the time the line stays up.
 var read_tween: Tween
@@ -53,6 +55,11 @@ var restart_button: Button
 func _build_controls() -> void:
 	for entry in CallMachine.moments(payload):
 		choices.append(-1)
+		var shown: Array = range(entry.options.size())
+		shown.shuffle()  # Otherwise the good block would usually come first, as it's written first.
+		order.append(shown)
+	listing.move_dropped.connect(_on_drop)
+	listing.drag_ended.connect(_on_drag_ended)
 	# The registers the room watches sit above the code.
 	var main: Node = listing.get_parent()
 	var column := VBoxContainer.new()
@@ -90,15 +97,16 @@ func _build_controls() -> void:
 	line_label.add_theme_font_override("font", Style.MONO)
 	body = _label(14, Style.TEXT)
 	note_label = _label(13, Style.CYAN.lightened(0.3))
-	choice_box = VBoxContainer.new()
-	choice_box.add_theme_constant_override("separation", 4)
+	bank = HFlowContainer.new()  # Three blocks fit a row, which keeps the controls under it on screen.
+	bank.add_theme_constant_override("h_separation", 4)
+	bank.add_theme_constant_override("v_separation", 4)
 	rewind_button = Button.new()
 	rewind_button.text = "Rewind and try again"
 	rewind_button.focus_mode = Control.FOCUS_NONE
 	rewind_button.add_theme_font_size_override("font_size", 14)
 	_compact(rewind_button)
 	rewind_button.pressed.connect(_rewind)
-	for part in [header, line_label, body, note_label, choice_box, rewind_button]:
+	for part in [header, line_label, body, note_label, bank, rewind_button]:
 		words.add_child(part)
 	# Along the box's bottom, the bar that fills until Play moves to the next line.
 	var push := Control.new()
@@ -151,7 +159,7 @@ func _show_start() -> void:
 
 ## Assembles the program with the moves made so far and runs it until the next move or the end.
 func _rebuild() -> void:
-	var built := CallMachine.assemble(payload, [], choices)
+	var built := CallMachine.assemble(payload, choices)
 	walk = {"built": built, "state": CallMachine.run(payload, built.lines, built.labels, 0, built.stops),
 		"at": int(walk.get("at", 0))}
 
@@ -215,7 +223,7 @@ func _play_walk() -> void:
 			break
 		var seconds := _reading_time()
 		_run_bar(seconds)
-		await tower.get_tree().create_timer(seconds).timeout
+		await tower.get_tree().create_timer(seconds, false).timeout
 		if not is_instance_valid(tower):
 			return
 	if mine == generation:
@@ -286,12 +294,15 @@ func restart() -> void:
 	revealed = false
 	_show()
 
-## Number keys pick a move; when a wrong move has played out, any of them rewinds.
+## Number keys make the move on the bank's block of that number (the keyboard's way to drag it in);
+## when a wrong move has played out, any of them rewinds.
 func press(index: int) -> void:
 	if disabled or locked:
 		return
 	if _waiting():
-		_choose(index)
+		var shown: Array = order[int(walk.state.paused)]
+		if index < shown.size():
+			_choose(int(shown[index]))
 	elif _broke():
 		_rewind()
 	elif int(walk.at) >= walk.state.trace.size() and _more():
@@ -322,6 +333,7 @@ func _choose(k: int) -> void:
 	if k < 0 or k >= entry.options.size():
 		return
 	var option: Dictionary = entry.options[k]
+	learning_event.emit("walk_choice", {"moment": m, "choice": k})
 	if bool(option.good):
 		Audio.play("press", -4.0, 0.1)
 		choices[m] = k
@@ -341,7 +353,7 @@ func _choose(k: int) -> void:
 	for j in range(picks.size()):
 		if int(picks[j]) < 0:
 			picks[j] = _good_option(j)
-	var built := CallMachine.assemble(payload, [], picks)
+	var built := CallMachine.assemble(payload, picks)
 	trying = {"moment": m, "option": option, "picks": picks, "built": built, "at": int(walk.at), "done": false,
 		"state": CallMachine.run(payload, built.lines, built.labels, 0)}
 	view = trying
@@ -370,7 +382,7 @@ func _play_out() -> void:
 	var limit := mini(trace.size(), int(trying.at) + SHOWN)
 	_show()
 	while not trying.is_empty() and int(trying.at) < limit and mine == generation:
-		await tower.get_tree().create_timer(QUICK).timeout
+		await tower.get_tree().create_timer(QUICK, false).timeout
 		if not is_instance_valid(tower) or trying.is_empty() or mine != generation:
 			return
 		trying.at = int(trying.at) + 1
@@ -404,7 +416,7 @@ func _finish() -> void:
 	finished = true
 	auto = false
 	_stop_bar()
-	var row: Dictionary = CallMachine.audit(payload, [], choices)[0]
+	var row: Dictionary = CallMachine.audit(payload, choices)[0]
 	if row.passed:
 		locked = true
 		_sync()
@@ -453,12 +465,12 @@ func _show() -> void:
 	_show_model(model)
 	chips.show_state(model, at > 0)
 	listing.running = int(trace[at - 1].pc) if at > 0 else -1
-	listing.waiting = _waiting()
+	listing.waiting = int(state.paused) if _waiting() else -1
 	listing.queue_redraw()
 	header.add_theme_color_override("font_color", Color(Style.TEXT, 0.5))
-	for button in choice_box.get_children():
-		choice_box.remove_child(button)
-		button.queue_free()
+	for block in bank.get_children():
+		bank.remove_child(block)
+		block.queue_free()
 	line_label.hide()
 	note_label.hide()
 	rewind_button.hide()
@@ -466,21 +478,23 @@ func _show() -> void:
 		header.text = "THAT MOVE BROKE IT"
 		header.add_theme_color_override("font_color", Style.RED)
 		line_label.text = _fault_text(state.fault, 0) if not state.fault.is_empty() \
-			else _detail(CallMachine.audit(payload, [], trying.picks)[0])
+			else _detail(CallMachine.audit(payload, trying.picks)[0])
 		line_label.show()
 		body.text = str(trying.option.why)
 		rewind_button.show()
 	elif _waiting():
-		var entry: Dictionary = CallMachine.moments(payload)[int(state.paused)]
-		header.text = "YOUR MOVE"
+		var m := int(state.paused)
+		var entry: Dictionary = CallMachine.moments(payload)[m]
+		header.text = "YOUR MOVE  ·  DRAG A BLOCK INTO THE GOLD SLOT"
 		header.add_theme_color_override("font_color", Style.GOLD)
 		body.text = str(entry.ask)
-		for k in range(entry.options.size()):
-			choice_box.add_child(_option_button(k, entry.options[k]))
+		listing.drop_note = "the matching epilogue goes in before the return" if str(entry.moment) == "frame" else ""
+		for place in range(order[m].size()):
+			bank.add_child(_block(m, int(order[m][place]), place))
 	elif _ending():
 		header.text = "THE CHOMPER CHECKS"
 		header.add_theme_color_override("font_color", Style.GREEN)
-		var row: Dictionary = CallMachine.audit(payload, [], choices)[0]
+		var row: Dictionary = CallMachine.audit(payload, choices)[0]
 		body.text = _verdict(row)
 		_finish.call_deferred()
 	elif at == 0:
@@ -511,19 +525,85 @@ func _show() -> void:
 			"  ·  your move next" if trying.is_empty() and state.paused >= 0 else ""]
 	_sync()
 
-func _option_button(k: int, option: Dictionary) -> Button:
-	var button := Button.new()
-	button.text = "%d   %s" % [k + 1, str(option.label)]
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.focus_mode = Control.FOCUS_NONE
-	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.add_theme_font_size_override("font_size", 14)
+## Option k's block in moment m's bank, numbered by its place there (its key). It's dragged into the
+## slot; a click that doesn't drag it only flashes the slot.
+func _block(m: int, k: int, place: int) -> PanelContainer:
+	var block := _block_face(CallMachine.moments(payload)[m].options[k], place)
+	block.mouse_filter = Control.MOUSE_FILTER_STOP
+	block.tooltip_text = "Drag into the gold slot (key %d)" % (place + 1)
+	block.set_drag_forwarding(_drag_block.bind(m, k, place, block), Callable(), Callable())
+	block.gui_input.connect(_on_block_input)
+	return block
+
+## How a block looks, in the bank and in the hand: its number, then the code the option writes in
+## the blue the listing writes moves in (a frame's is its prologue), or "(add nothing)" in a dashed
+## outline like an empty slot.
+func _block_face(option: Dictionary, place: int) -> PanelContainer:
 	var written: Array = option.lines if option.has("lines") else CallMachine.frame_lines(option.frame)[0]
-	button.tooltip_text = "\n".join(PackedStringArray(written.map(func(line): return str(line)))) \
-		if not written.is_empty() else "(no lines)"
-	_compact(button)
-	button.pressed.connect(_choose.bind(k))
-	return button
+	var block := PanelContainer.new()
+	block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var look := StyleBoxFlat.new()
+	look.bg_color = Color(0, 0, 0, 0.18) if written.is_empty() else Color("161d2a")
+	look.border_color = Color(Style.CYAN, 0.55)
+	look.set_border_width_all(0 if written.is_empty() else 1)
+	look.set_corner_radius_all(6)
+	look.set_content_margin_all(6)
+	look.content_margin_top = 2
+	block.add_theme_stylebox_override("panel", look)
+	if written.is_empty():
+		block.draw.connect(func(): Style.dashed_box(block, Rect2(Vector2.ONE, block.size - Vector2(2, 2)),
+			Color(Style.TEXT, 0.4), 1.5, 5.0))
+	var words := VBoxContainer.new()
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.add_theme_constant_override("separation", 0)
+	block.add_child(words)
+	var key := Label.new()
+	key.text = str(place + 1)
+	key.add_theme_font_size_override("font_size", 10)
+	key.add_theme_color_override("font_color", Color(Style.TEXT, 0.45))
+	words.add_child(key)
+	var code := Label.new()
+	code.text = "(add nothing)" if written.is_empty() \
+		else "\n".join(PackedStringArray(written.map(func(line): return str(line))))
+	code.add_theme_font_override("font", Style.MONO)
+	code.add_theme_font_size_override("font_size", 12)
+	code.add_theme_constant_override("line_spacing", 0)
+	code.add_theme_color_override("font_color", Color(Style.TEXT, 0.55) if written.is_empty() else Style.CYAN.lightened(0.35))
+	words.add_child(code)
+	return block
+
+## Picks a block up: the drag carries its move, a copy follows the mouse, and the block left in the
+## bank fades until the drag ends.
+func _drag_block(at_position: Vector2, m: int, k: int, place: int, block: Control) -> Variant:
+	if disabled or locked or not _waiting():
+		return null
+	var copy := _block_face(CallMachine.moments(payload)[m].options[k], place)
+	copy.custom_minimum_size = block.size
+	copy.position = -at_position
+	var hand := Control.new()
+	hand.add_child(copy)
+	block.set_drag_preview(hand)
+	block.modulate.a = 0.3
+	Audio.play("press", -12.0, 0.2)
+	return {"move": k, "moment": m}
+
+func _on_block_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_nudge()
+
+## A block landed in the slot: that's the move.
+func _on_drop(k: int) -> void:
+	if not disabled and not locked and _waiting():
+		_choose(k)
+
+## A block let go anywhere else goes back to the bank, and the slot flashes to show where it belongs.
+func _on_drag_ended(dropped: bool) -> void:
+	_sync()
+	if not dropped and _waiting():
+		_nudge()
+
+func _nudge() -> void:
+	listing.create_tween().tween_property(listing, "nudge", 0.0, 0.9).from(1.0)
 
 ## Whether the step at `k` is the first time its line runs (a line's note shows only then).
 func _first_run(trace: Array, k: int) -> bool:
@@ -555,8 +635,9 @@ func _sync() -> void:
 	hint_button.disabled = disabled or locked or hint_used or hint.is_empty()
 	hint_box.visible = hint_used and not auto and trying.is_empty() and not won
 	rewind_button.disabled = disabled or locked
-	for button in choice_box.get_children():
-		button.disabled = disabled or locked
+	for block in bank.get_children():
+		block.modulate.a = 0.45 if disabled or locked else 1.0
+		block.mouse_default_cursor_shape = Control.CURSOR_ARROW if disabled or locked else Control.CURSOR_DRAG
 
 # ---- Captions ---------------------------------------------------------------------------------
 

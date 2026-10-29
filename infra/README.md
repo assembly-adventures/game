@@ -29,14 +29,59 @@ The exporter stages a clean copy under ignored `build/`, switches that copy to
 Compatibility rendering, removes MCP editor/runtime services, and produces a
 single-threaded release in `build/web/`. It does not modify the desktop project.
 Database SQL and the reference question bank are not bundled in the release.
+
+The release is about 41 MB, nearly all of it the Godot engine (`index.wasm`).
+The image build (`infra/Dockerfile`) saves gzipped copies of `index.wasm`,
+`index.pck`, and `index.js`, about 11 MB together, and the app sends those to
+browsers that accept gzip. Browsers keep the game's files (`private, no-cache`)
+and check on each visit whether they changed, so a returning player downloads
+almost nothing, and a new deployment reaches everyone right away. API responses
+are never cached (`private, no-store`).
 See [Godot's web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).
 
-## Login and deployment
+## OpenShift terminal setup
 
-Sign into [CloudApps](https://console.apps.unc.edu/), choose **Copy login command**
-from the user menu, and run that command in your local terminal. Website login
-alone does not authenticate `oc`. Never commit or share the resulting token.
+CloudApps runs Red Hat OpenShift, which you control with its command-line tool,
+`oc`. Run it in a terminal on your own computer: the CloudApps console has no
+built-in terminal, and `deploy.sh` needs this repository and `build/web`. Off
+campus, connect to the UNC VPN if `oc` times out.
 
+Install `oc` once, from the console so it matches the cluster (Homebrew's
+`openshift-cli` can be newer than CloudApps supports):
+
+1. Sign into the [CloudApps console](https://console.apps.cloudapps.unc.edu/)
+   with your Onyen. Not `console.apps.unc.edu`, which is a different cluster.
+2. Open the **?** menu at the top right and choose **Command Line Tools**.
+3. Download **oc for Mac for ARM 64** (Apple silicon) or **oc for Mac for
+   x86_64** (Intel), and unzip it. Windows and Linux builds are listed too.
+4. Install the `oc` file. Red Hat does not notarize it, so clear its download
+   flag or macOS refuses to run it:
+
+   ```bash
+   sudo mkdir -p /usr/local/bin
+   sudo mv ~/Downloads/oc /usr/local/bin/oc
+   xattr -d com.apple.quarantine /usr/local/bin/oc
+   oc version --client
+   ```
+
+Log in the first time, and again whenever `oc` reports `You must be logged in
+to the server`. Website login alone does not authenticate `oc`.
+
+1. In the console, click your Onyen at the top right and choose **Copy login
+   command**. Sign in again if asked, then choose **Display Token**.
+2. Run the `oc login --token=… --server=https://api.cloudapps.unc.edu:6443`
+   command shown there. The token works like a password until it expires;
+   never commit or share it.
+3. Select the project and check the account; `oc whoami` prints your Onyen:
+
+   ```bash
+   oc project teddyt
+   oc whoami
+   ```
+
+## Deployment
+
+Log into `oc` first ([OpenShift terminal setup](#openshift-terminal-setup)).
 From the repository root, after exporting:
 
 ```bash
@@ -104,6 +149,49 @@ curl -I https://assembly-adventures-teddyt.apps.cloudapps.unc.edu/index.pck
 Both unauthenticated requests should redirect to `/auth/login`. Follow the
 login flow, verify that the game loads, and play through levels 1 to 3. Automated
 tests mock CSXL verification; they do not substitute for this real SSO check.
+
+## Staff dashboard access
+
+Staff Onyens live in the ConfigMap `assembly-adventures-staff`, key
+`AA_STAFF_ONYENS`, as a comma-separated list. Deployments do not create it.
+Each update replaces the whole list, so include everyone who should keep access:
+
+```bash
+oc create configmap assembly-adventures-staff -n teddyt \
+  --from-literal=AA_STAFF_ONYENS="teddyt,kakiryan" \
+  --dry-run=client -o yaml | oc apply -n teddyt -f -
+oc rollout restart deployment/assembly-adventures -n teddyt
+oc rollout status deployment/assembly-adventures -n teddyt
+```
+
+The restart is required; the app reads the list only at startup. Check the
+current list with:
+
+```bash
+oc get configmap assembly-adventures-staff -n teddyt -o jsonpath='{.data.AA_STAFF_ONYENS}'; echo
+```
+
+The Deployment must reference the ConfigMap, which the current template does.
+If `AA_STAFF_ONYENS` is missing from
+`oc get deployment assembly-adventures -n teddyt -o jsonpath='{.spec.template.spec.containers[0].env[*].name}'`,
+run `deploy.sh` first. See [classroom features](../Docs/classroom-features.md#staff-access)
+for what staff can see.
+
+### Clearing a nickname
+
+Staff clear an inappropriate leaderboard nickname themselves: search the
+dashboard's Students page for it, open the student, and choose **Clear
+nickname**. An operator can do the same from a terminal, with the student's Onyen
+in place of `ONYEN`:
+
+```bash
+echo "UPDATE aa.players SET nickname=NULL WHERE onyen='ONYEN';" |
+  oc exec -i -n teddyt deployment/assembly-adventures-postgres -- \
+  sh -c 'PGPASSWORD="$POSTGRESQL_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE"'
+```
+
+`UPDATE 1` confirms it. Either way, the student appears as `Player <number>` again
+and can choose a new nickname; no restart is needed.
 
 ## Moving to another namespace
 

@@ -3,10 +3,11 @@ extends RefCounted
 ## Stack Tower in the middle, and a side panel with the room's controls as numbered steps, the
 ## Chomper's audit, and the hint. A run plays on the tower: each call lowers a floor (the stack
 ## grows down), the robot rides sp like an elevator, stores fill their words, and returns pull
-## floors back up. The three room kinds (frame_room.gd, elevator_room.gd, lawyer_room.gd) extend
-## this with their own controls and answer; call_machine.gd runs the code.
+## floors back up. walk_room.gd extends this with the walkthrough's controls and answer;
+## call_machine.gd runs the code.
 
 signal attempt
+signal learning_event(kind: String, detail: Dictionary)
 
 const CallMachine := preload("res://levels/level_3/call_machine.gd")
 const TowerVisuals := preload("res://levels/level_3/tower_visuals.gd")
@@ -169,6 +170,7 @@ func show_hint() -> void:
 	if hint.is_empty() or hint_used:
 		return
 	hint_used = true
+	learning_event.emit("hint", {})
 	Audio.play("hint", -4.0)
 	hint_label.text = "Hint: " + hint
 	hint_button.modulate = Color.WHITE
@@ -276,14 +278,6 @@ func _fault_text(fault: Dictionary, form: int) -> String:
 	var text: String = FAULTS[str(fault.kind)][form]
 	return text % ("0x%X" % int(fault.at)) if text.contains("%s") else text
 
-## Marks every audit card from its row; returns how many calls passed.
-func _show_rows(rows: Array) -> int:
-	var passed := 0
-	for k in range(rows.size()):
-		cards.mark(k, rows[k].passed, _detail(rows[k]))
-		passed += int(rows[k].passed)
-	return passed
-
 ## Plays one call on the tower: floors appear as calls are made and leave as they return, each
 ## store fills its word, and the listing follows the PC. A long run (an endless loop) plays its
 ## first steps, then jumps to where it ended.
@@ -308,7 +302,7 @@ func _play(state: Dictionary, index: int = 0) -> void:
 			Audio.play("press", -10.0, 0.15)
 		elif step.returned:
 			Audio.play("press", -12.0, 0.3)
-		await tower.get_tree().create_timer(duration).timeout
+		await tower.get_tree().create_timer(duration, false).timeout
 	if not is_instance_valid(tower):
 		return
 	for step in trace.slice(shown.size()):
@@ -319,7 +313,7 @@ func _play(state: Dictionary, index: int = 0) -> void:
 	if not state.fault.is_empty():
 		tower.fault(_fault_text(state.fault, 0))
 		Audio.play("overflow", -4.0)
-		await tower.get_tree().create_timer(1.4).timeout
+		await tower.get_tree().create_timer(1.4, false).timeout
 
 func _apply(model: Dictionary, step: Dictionary) -> void:
 	if not step.call.is_empty():

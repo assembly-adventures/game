@@ -5,9 +5,7 @@ extends Control
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_room.gd"),
-	"code": preload("res://levels/level_2/code_room.gd"), "walk": preload("res://levels/level_3/walk_room.gd"),
-	"frame": preload("res://levels/level_3/frame_room.gd"),
-	"elevator": preload("res://levels/level_3/elevator_room.gd"), "lawyer": preload("res://levels/level_3/lawyer_room.gd")}
+	"code": preload("res://levels/level_2/code_room.gd"), "walk": preload("res://levels/level_3/walk_room.gd")}
 const Corridor := preload("res://ui/corridor.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
 const InstructionGuide := preload("res://ui/instruction_guide.gd")
@@ -41,13 +39,15 @@ var feedback: Label
 var submit: Button
 var retry: Button
 var corridor
-var sound_button: Button
+var menu_button: Button
+var learning_failed := false
 var guide_button: Button
 var guide  # The instruction guide, drawn over everything when open.
 var layout_root: MarginContainer
 
 func _ready() -> void:
 	_build_ui()
+	LearningLog.saved.connect(_learning_saved)
 	_load_run()
 
 func _build_ui() -> void:
@@ -69,11 +69,11 @@ func _build_ui() -> void:
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 12)
 	layout.add_child(bar)
-	var menu := Button.new()
-	menu.text = "◀ Control Center"
-	menu.focus_mode = Control.FOCUS_NONE
-	menu.pressed.connect(func(): get_tree().change_scene_to_file("res://control_center.tscn"))
-	bar.add_child(menu)
+	menu_button = Button.new()
+	menu_button.text = "◀ Control Center"
+	menu_button.focus_mode = Control.FOCUS_NONE
+	menu_button.pressed.connect(_return_to_center)
+	bar.add_child(menu_button)
 	title = Label.new()
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -91,11 +91,9 @@ func _build_ui() -> void:
 	saving.add_theme_font_size_override("font_size", 13)
 	saving.add_theme_color_override("font_color", Color(Style.TEXT, 0.55))
 	bar.add_child(saving)
-	sound_button = Button.new()
-	sound_button.focus_mode = Control.FOCUS_NONE
-	sound_button.pressed.connect(_toggle_sound)
-	bar.add_child(sound_button)
-	_update_sound_label()
+	var settings_button := Settings.make_button()
+	settings_button.focus_mode = Control.FOCUS_NONE
+	bar.add_child(settings_button)
 	corridor = Corridor.new()
 	corridor.bitten.connect(func():
 		Audio.play("chomp")
@@ -181,6 +179,8 @@ func _build_ui() -> void:
 ## the instruction guide. A room can claim other keys first (Level 2 steps the robot with the arrow
 ## keys). While the guide is open the gate waits, and Escape or I closes it.
 func _unhandled_input(event: InputEvent) -> void:
+	if Settings.is_open or busy or learning_failed:
+		return
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	var key: int = event.keycode
@@ -213,18 +213,11 @@ func _toggle_guide() -> void:
 		var corner := guide_button.get_global_rect()
 		guide.open(puzzle.guide(), Vector2(corner.end.x, corner.end.y + 8))
 
-func _toggle_sound() -> void:
-	Audio.set_enabled(not Audio.enabled)
-	_update_sound_label()
-
-func _update_sound_label() -> void:
-	sound_button.text = "Sound: on" if Audio.enabled else "Sound: off"
-
 func _load_run() -> void:
 	_set_busy(true)
 	retry.hide()
 	title.text = "Loading level %d…" % level_id
-	var result := await PlayerData.api_request("/runs", HTTPClient.METHOD_POST, {"level_id": level_id})
+	var result := await PlayerData.api_request("/runs", HTTPClient.METHOD_POST, {"level_id": level_id, "telemetry_version": 1})
 	_set_busy(false)
 	if not result.ok:
 		feedback.text = result.error
@@ -232,6 +225,11 @@ func _load_run() -> void:
 		retry.show()
 		return
 	run = result.data
+	_set_busy(true)
+	if not await _flush_learning():
+		_set_busy(false)
+		return
+	_set_busy(false)
 	solved = run.solved_question_ids
 	strikes = run.get("strikes", {}).duplicate()
 	question_index = 0
@@ -239,6 +237,10 @@ func _load_run() -> void:
 	for item in run.questions:
 		flags.append(item.id in solved)
 	corridor.setup(run.questions.size(), flags)
+	for i in range(run.questions.size()):
+		var item: Dictionary = run.questions[i]
+		if item.id in solved:
+			corridor.open_gate(i, int(run.get("question_stats", {}).get(str(item.id), {}).get("stars", 3)))
 	corridor.max_strikes = PuzzleRoom.STRIKES
 	_show_next_unsolved()
 
@@ -292,7 +294,12 @@ func _render_options() -> void:
 	match question.type:
 		"puzzle":
 			puzzle = ROOMS[str(question.payload.kind)].new(question.payload, options_box, question.get("hint"))
+			var stats: Dictionary = run.get("question_stats", {}).get(str(question.id), {})
+			puzzle.fails = int(stats.get("mistakes", 0))
+			if bool(stats.get("hint_used", false)):
+				puzzle.show_hint()
 			puzzle.attempt.connect(_submit)
+			puzzle.learning_event.connect(_record_learning)
 		"multiple_choice":
 			var group := ButtonGroup.new()
 			for option in question.payload.options:
@@ -380,6 +387,11 @@ func _submit() -> void:
 		request_id = PlayerData.new_request_id()
 	_set_busy(true)
 	retry.hide()
+	if not await _flush_learning():
+		_set_busy(false)
+		submit.text = "Retry saving this answer"
+		submit.show()
+		return
 	var result := await PlayerData.api_request("/runs/%s/attempts" % run.id, HTTPClient.METHOD_POST, {
 		"question_id": question.id, "request_id": request_id, "response": pending_answer,
 		"elapsed_ms": Time.get_ticks_msec() - started_at
@@ -403,6 +415,7 @@ func _submit() -> void:
 			puzzle.reset()
 		return
 	pending_answer = {}
+	_learning_saved(str(run.id), str(question.id), result.data.get("question_stats", {}))
 	var last: bool = question_index == run.questions.size() - 1
 	if result.data.is_correct:
 		solved.append(question.id)
@@ -411,7 +424,7 @@ func _submit() -> void:
 			strikes.erase(str(run.questions[question_index + 1].id))
 		var explanation := "" if result.data.get("explanation") == null else " " + str(result.data.explanation)
 		if puzzle != null:
-			var stars: int = puzzle.stars()
+			var stars: int = int(result.data.get("stars", puzzle.stars()))
 			puzzle.solved()
 			corridor.open_gate(question_index, stars)
 			Audio.play("open")
@@ -449,7 +462,7 @@ func _dragged_back(target_id: String) -> void:
 	strikes.erase(target_id)
 	solved.erase(target_id)
 	_set_busy(true)
-	get_tree().create_timer(0.62).timeout.connect(Audio.play.bind("dragged"))
+	get_tree().create_timer(0.62, false).timeout.connect(Audio.play.bind("dragged"))
 	feedback.text = "CHOMP! The Chip Chomper caught you!"
 	await corridor.bite(target)
 	_set_busy(false)
@@ -462,6 +475,9 @@ func _dragged_back(target_id: String) -> void:
 func _finish() -> void:
 	_set_busy(true)
 	title.text = "Saving your badge…"
+	if not await _flush_learning():
+		_set_busy(false)
+		return
 	var result := await PlayerData.api_request("/runs/%s/finish" % run.id, HTTPClient.METHOD_POST)
 	_set_busy(false)
 	submit.hide()
@@ -481,6 +497,12 @@ func _finish() -> void:
 	_show_prompt(finish_line)
 	title.text = "Level complete — badge earned!" if PlayerData.guest else "Level complete — badge saved!"
 	feedback.text = "Guest badges reset when you reload." if PlayerData.guest else "Your badge will be here when you sign in again."
+	if not PlayerData.guest and result.data.get("leaderboard_eligible", false):
+		feedback.text = "%d / %d stars · %d mistake%s. Your best run this week counts on the leaderboard." % [
+			int(result.data.get("stars", 0)), int(result.data.get("max_stars", 0)), int(result.data.get("mistakes", 0)),
+			"" if int(result.data.get("mistakes", 0)) == 1 else "s"]
+	elif not PlayerData.guest:
+		feedback.text += " Replay this level to enter the weekly leaderboard."
 	retry.hide()
 
 func _show_badge() -> void:
@@ -494,7 +516,7 @@ func _show_badge() -> void:
 	badge.pivot_offset = Vector2(110, 110)
 	badge.scale = Vector2.ZERO
 	create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).tween_property(badge, "scale", Vector2.ONE, 0.6)
-	await get_tree().create_timer(0.45).timeout
+	await get_tree().create_timer(0.45, false).timeout
 	Style.burst(badge, Vector2(110, 110), [Style.GOLD, Style.CYAN, Style.GREEN, Color.WHITE], 40, 320.0, 180.0, 260.0, 6.0, 1.2)
 
 ## Jolts the whole screen, fading out over a third of a second.
@@ -505,14 +527,67 @@ func _shake(strength: float) -> void:
 	tween.tween_callback(func(): layout_root.position = Vector2.ZERO)
 
 func _retry() -> void:
-	if run.is_empty():
+	if learning_failed:
+		_set_busy(true)
+		var saved_ok := await _flush_learning()
+		_set_busy(false)
+		if not saved_ok:
+			return
+		if not pending_answer.is_empty():
+			_submit()
+		elif question.is_empty():
+			_load_run()
+		elif question_index >= run.questions.size():
+			_finish()
+	elif run.is_empty():
 		_load_run()
 	else:
 		_finish()
 
+func _record_learning(kind: String, detail: Dictionary) -> void:
+	LearningLog.record(str(run.id), str(question.id), kind, detail)
+	await _flush_learning()
+
+func _flush_learning() -> bool:
+	if run.is_empty():
+		return true
+	var saved_ok := await LearningLog.flush(str(run.id))
+	var was_failed := learning_failed
+	learning_failed = not saved_ok
+	if saved_ok and was_failed:
+		feedback.text = "Your latest move is saved."
+		retry.hide()
+	if not saved_ok:
+		feedback.text = LearningLog.last_error + " Retry to save your latest move."
+		retry.show()
+		if puzzle != null:
+			puzzle.set_disabled(true)
+	elif not busy:
+		retry.hide()
+		if puzzle != null:
+			puzzle.set_disabled(ready_for_next or not pending_answer.is_empty())
+	return saved_ok
+
+func _learning_saved(run_id: String, question_id: String, stats: Dictionary) -> void:
+	if str(run.get("id", "")) != run_id or stats.is_empty():
+		return
+	if not run.has("question_stats"):
+		run.question_stats = {}
+	run.question_stats[question_id] = stats
+
+func _return_to_center() -> void:
+	if busy:
+		return
+	_set_busy(true)
+	var saved_ok := await _flush_learning()
+	_set_busy(false)
+	if saved_ok:
+		get_tree().change_scene_to_file("res://control_center.tscn")
+
 func _set_busy(value: bool) -> void:
 	busy = value
 	submit.disabled = value
+	menu_button.disabled = value
 	for button in choices:
 		if is_instance_valid(button):
 			button.disabled = value
@@ -520,4 +595,4 @@ func _set_busy(value: bool) -> void:
 		if is_instance_valid(selector):
 			selector.disabled = value
 	if puzzle != null:
-		puzzle.set_disabled(value or ready_for_next)
+		puzzle.set_disabled(value or ready_for_next or learning_failed)

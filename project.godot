@@ -19,6 +19,8 @@ config/icon="res://images/icon.svg"
 
 PlayerData="*uid://cqtg04jdlnjhc"
 Audio="*res://ui/audio.gd"
+LearningLog="*res://ui/learning_log.gd"
+Settings="*res://ui/settings_panel.gd"
 MCPScreenshot="*res://addons/godot_mcp/mcp_screenshot_service.gd"
 MCPInputService="*res://addons/godot_mcp/mcp_input_service.gd"
 MCPGameInspector="*res://addons/godot_mcp/mcp_game_inspector_service.gd"

@@ -96,6 +96,12 @@ objects:
                       key: POSTGRESQL_PASSWORD
                 - name: APP_ORIGIN
                   value: https://${APP_HOST}
+                - name: AA_STAFF_ONYENS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: assembly-adventures-staff
+                      key: AA_STAFF_ONYENS
+                      optional: true
                 - name: SESSION_SECRET
                   valueFrom:
                     secretKeyRef:

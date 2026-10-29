@@ -1,17 +1,38 @@
 """Authenticated gameplay HTTP endpoints; identity is read from the session."""
 
 import json
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 
-from . import gameplay
+from . import gameplay, reporting
 
 
 class StartRun(BaseModel):
     model_config = ConfigDict(extra="forbid")
     level_id: int = Field(ge=1, le=7)
+    telemetry_version: int = Field(default=0, ge=0, le=1, strict=True)
+
+
+class Preferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    leaderboard_visible: StrictBool
+
+
+class Nickname(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    nickname: StrictStr = Field(max_length=64)  # Blank goes back to Player <number>.
+
+
+class LearningEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_id: UUID
+    request_id: UUID
+    kind: Literal["hint", "walk_choice"]
+    moment: int | None = Field(default=None, ge=0, strict=True)
+    choice: int | None = Field(default=None, ge=0, strict=True)
 
 
 class Attempt(BaseModel):
@@ -40,6 +61,10 @@ def router(authenticate, origin: str) -> APIRouter:
 
     routes = APIRouter(prefix="/api")
 
+    def staff(onyen: str = Depends(user)) -> str:
+        reporting.require_staff(onyen)
+        return onyen
+
     @routes.get("/me")
     def me(onyen: str = Depends(user)) -> dict:
         return gameplay.me(onyen)
@@ -48,9 +73,51 @@ def router(authenticate, origin: str) -> APIRouter:
     def levels(onyen: str = Depends(user)) -> list[dict]:
         return gameplay.levels(onyen)
 
+    @routes.post("/preferences")
+    def preferences(body: Preferences, onyen: str = Depends(user)) -> dict:
+        return reporting.preferences(onyen, body.leaderboard_visible)
+
+    @routes.post("/nickname")
+    def nickname(body: Nickname, onyen: str = Depends(user)) -> dict:
+        return reporting.set_nickname(onyen, body.nickname)
+
+    @routes.get("/leaderboard")
+    def leaderboard(level_id: int = Query(ge=1, le=7), week_offset: int = Query(default=0, ge=-104, le=0),
+                    onyen: str = Depends(user)) -> dict:
+        return reporting.leaderboard(onyen, level_id, week_offset)
+
+    @routes.get("/admin/overview")
+    def overview(onyen: str = Depends(staff)) -> dict:
+        return reporting.overview(onyen)
+
+    @routes.get("/admin/levels/{level_id}")
+    def level_detail(level_id: int, onyen: str = Depends(staff)) -> dict:
+        return reporting.level_detail(onyen, level_id)
+
+    @routes.get("/admin/questions/{question_id}")
+    def question_detail(question_id: UUID, onyen: str = Depends(staff)) -> dict:
+        return reporting.question_detail(onyen, question_id)
+
+    @routes.get("/admin/students")
+    def students(q: str = Query(default="", max_length=128), limit: int = Query(default=100, ge=1, le=200),
+                 offset: int = Query(default=0, ge=0), onyen: str = Depends(staff)) -> dict:
+        return reporting.students(onyen, q, limit, offset)
+
+    @routes.get("/admin/students/{student_id}")
+    def student_detail(student_id: UUID, onyen: str = Depends(staff)) -> dict:
+        return reporting.student_detail(onyen, student_id)
+
+    @routes.post("/admin/students/{student_id}/clear-nickname")
+    def clear_nickname(student_id: UUID, onyen: str = Depends(staff)) -> dict:
+        return reporting.clear_nickname(onyen, student_id)
+
     @routes.post("/runs")
     def start(body: StartRun, onyen: str = Depends(user)) -> dict:
-        return gameplay.start_run(onyen, body.level_id)
+        return gameplay.start_run(onyen, body.level_id, body.telemetry_version)
+
+    @routes.post("/runs/{run_id}/events")
+    def event(run_id: UUID, body: LearningEvent, onyen: str = Depends(user)) -> dict:
+        return gameplay.learning_event(onyen, run_id, **body.model_dump())
 
     @routes.post("/runs/{run_id}/attempts")
     def attempt(run_id: UUID, body: Attempt, onyen: str = Depends(user)) -> dict:
