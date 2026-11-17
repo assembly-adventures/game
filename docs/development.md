@@ -1,6 +1,8 @@
 # Developer guide
 
-This guide describes the current release, with Levels 1 to 3. Run commands from the repository
+This guide describes the current release, with Levels 1 to 4. New to the
+project? Read [Start here](onboarding.md) first. To add questions,
+a kind of room, or a level, follow [adding-content.md](adding-content.md). Run commands from the repository
 root. See [deployment operations](../infra/README.md) for the hosted environment.
 
 ## Prerequisites
@@ -53,7 +55,7 @@ use `docker start aa-dev-db` instead of creating the container again. Use
 export DATABASE_URL='postgresql://aa_dev:local-development-only@127.0.0.1:55433/assembly_adventures_dev'
 python -m server.database
 export TEST_DATABASE_URL="$DATABASE_URL"
-python -m unittest server.test_app server.test_puzzles server.test_call_stack server.test_gameplay server.test_reporting server.test_admin_page -v
+python -m unittest server.test_app server.test_puzzles server.test_call_stack server.test_timing server.test_gameplay server.test_reporting server.test_admin_page -v
 ```
 
 The runner applies the SQL files in filename order, including the two
@@ -62,9 +64,10 @@ records filenames and checksums. `pgcrypto` and `citext` are required; the local
 container's initial database user can create these extensions.
 
 Authentication tests mock CSXL and need no database, and so do the puzzle tests,
-which check every room's grading and reference answers. Gameplay tests apply
-migrations, create synthetic players, and clean them up. They cover grading,
-resume, duplicate submissions, concurrent requests, ownership, early completion,
+which check every room's grading, design (each `par` is the true minimum), and
+reference answer. Gameplay tests apply migrations, create synthetic players, and
+clean them up. They cover grading, resume, duplicate submissions, concurrent
+requests, ownership, early completion, going back to a gate, shown answers,
 badges, and identity privacy. Always point `TEST_DATABASE_URL` at a disposable
 local/test database, never the live database. If it is unset, gameplay tests are
 **skipped**, not passed.
@@ -119,21 +122,23 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `start_page.tscn`, `intro_animation.tscn` | Opening screens |
 | `control_center.gd` | Loads saved profile and level availability; opens each playable level |
 | `player_data.gd` | Same-origin HTTP requests, profile cache, retry IDs, profile-change signal, guest mode |
-| `levels/gate_level.gd` | Runs a level's gates: answer submission, strikes and setbacks, resume, completion; each level's scene sets its ID and badge |
+| `levels/gate_level.gd` | Runs a level's gates: answer submission, strikes and setbacks, resume, completion, Show answer, and going back to an open gate; each level's scene sets its ID and badge |
 | `levels/level_1/puzzle_room.gd`, `levels/level_2/maze_room.gd`, `levels/level_2/code_room.gd` | One gate's puzzle for each payload kind (`moves`, `maze`, `code`), with a client copy of the grader for guest mode |
 | `levels/level_3/walk_room.gd` | Level 3's walkthroughs (`walk`): Play, Step, and Back through a program on the tower, a caption per line, the registers it watches, and the student's moves, dragged from a bank of code blocks into the gold slot in the listing (a wrong one plays out and rewinds); built on `tower_room.gd` |
 | `levels/level_3/call_machine.gd`, `tower_visuals.gd` | Level 3's machine (a client copy of `server/call_stack.py`, with a trace for the walkthroughs and stops at moves not made yet) and its drawing: the listing (whose slot for a waiting move takes the dropped block) and the Call Stack Tower |
+| `levels/level_4/wave_room.gd`, `table_room.gd`, `timing_visuals.gd`, `timing_guide.gd` | Level 4's rooms: waveform diagrams (`wave`: the player clicks a row of the timing grid wherever its signal changes) and pipelining questions (`table`: a pipeline diagram to fill in, a table with blanks, and questions), each with a client copy of its grader in `server/timing.py`; what they draw (the circuit in the lectures' Logisim style, the timing grid, the pipeline diagram); and the Circuit guide and Pipeline guide entries (each gate, part, stage, and term on the gate) |
+| `levels/level_<n>/guest_rooms.json`, `tools/rooms.py` | Each level's room bank, reference answers, and draw rule (what guest mode plays), and the tool that writes migration SQL from it |
 | `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading the assembly lines Levels 2 and 3 write; ABI register names and their x-names |
 | `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
 | `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay (including the nickname) and weekly per-level standings |
 | `ui/learning_log.gd` | Durable hint/decision event queue, retried with stable request IDs |
-| `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle |
+| `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle; a click on an open gate asks to go back to it |
 | `server/app.py` | CSXL callback verification, signed session, protected static files (browser-cached, largest gzipped) |
 | `server/api.py` | Request validation, authenticated endpoints, POST origin/header checks |
-| `server/gameplay.py` | Transactions, owned runs, attempt history, profile, badge awards |
+| `server/gameplay.py` | Transactions, owned runs, attempt history, setbacks and going back, shown answers, profile, badge awards |
 | `server/reporting.py`, `server/scoring.py`, `server/admin.html` | Staff statistics/access, weekly rankings, server-computed stars, and staff dashboard |
 | `server/grading.py` | Public question snapshots and private grading solutions |
-| `server/puzzles.py`, `server/call_stack.py` | Puzzle grading by replay: Levels 1 and 2, and Level 3's machine and room kinds |
+| `server/puzzles.py`, `server/call_stack.py`, `server/timing.py` | Puzzle grading: Levels 1 and 2 by replay, Level 3's machine, and Level 4's circuit simulator and answer keys |
 | `server/database.py` | Connections and transactional migration ledger |
 | `db/migrations/`, `db/seed/` | Schema evolution and one-time bootstrap |
 | `infra/` | Exporter, container, OpenShift templates, deployment and backup scripts |
@@ -189,7 +194,9 @@ and `build/browser-smoke.png`. The smoke test uses locally installed Chrome.
 ### Questions or schema
 
 Add a new, uniquely numbered SQL migration after the existing files, for example
-`db/migrations/0014_describe_change.sql`. Never edit applied files such as
+`db/migrations/0019_describe_change.sql`. For questions, write the room in its
+level's `guest_rooms.json` and let `tools/rooms.py` write the SQL;
+[adding-content.md](adding-content.md) walks through it. Never edit applied files such as
 `0003_questions.sql`: checksum validation will reject them. Use the migration
 runner for fresh databases as well as upgrades so both paths have the same ledger.
 
@@ -207,8 +214,9 @@ Do not remove ledger rows to force changed SQL through.
 
 Database activation alone is insufficient. Add the question content and badge,
 implement and connect the scene from `control_center.gd`, and verify its question
-types and completion rule. Levels 1 to 3 are wired in the control center; a
+types and completion rule. Levels 1 to 4 are wired in the control center; a
 puzzle level can reuse `levels/gate_level.gd` with a new room for its payload kind.
+[adding-content.md](adding-content.md#add-a-new-level) lists every file to touch.
 Only `all_correct` is implemented by the server. Test resume, retries, completion,
 and badge restoration before activating a level in production.
 
@@ -243,4 +251,6 @@ access-controlled destination. There is no scheduled backup job in this repo.
 | API returns 503 | Check database availability and migration logs; avoid logging identity-bearing exceptions |
 | New questions do not appear in a resumed run | Expected: run snapshots are immutable; complete that run before starting another |
 | Applied migration checksum changed | Restore the applied file and put the change in a new migration |
-| Badge progress shows 33% after Level 1 | Expected: three badges are active (Levels 1 to 3); progress is based on active badges |
+| Badge progress shows 25% after Level 1 | Expected: four badges are active (Levels 1 to 4); progress is based on active badges |
+| A new level's rooms are missing in the web build only | Add its `guest_rooms.json` to `include_filter` in `export_presets.cfg` |
+| `Applied migration changed` while writing a migration | The file was applied to your local database before you edited it. Recreate the local database; never do this to a deployed one |

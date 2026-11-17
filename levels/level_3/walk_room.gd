@@ -437,6 +437,18 @@ func failed() -> void:
 	super.failed()
 	finished = false
 
+## A reference answer as the block to drag at each move, for the level's Show answer.
+static func answer_lines(room: Dictionary, response: Dictionary) -> Array:
+	var entries := CallMachine.moments(room)
+	var picks: Array = response.get("choices", [])
+	var lines: Array = []
+	for m in range(mini(entries.size(), picks.size())):
+		var option: Dictionary = entries[m].options[int(picks[m])]
+		var written: Array = option.lines if option.has("lines") else CallMachine.frame_lines(option.frame)[0]
+		var block := "the (add nothing) block" if written.is_empty() else "; ".join(PackedStringArray(written))
+		lines.append(("drag in  %s" % block) if entries.size() == 1 else ("move %d: drag in  %s" % [m + 1, block]))
+	return lines
+
 ## Every line the walk can run, its moves included, for the instruction guide.
 func guide() -> Dictionary:
 	var lines: Array = []

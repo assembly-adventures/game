@@ -255,9 +255,34 @@ def finish_run(onyen: str, run_id: UUID) -> dict:
                 **profile(conn, who["id"])}
 
 
+def reopen(onyen: str, run_id: UUID, question_id: UUID) -> dict:
+    """Go back to a gate that is already open: it closes and has to be opened again before the
+    run can finish. It is recorded like a setback, without the failed attempt that causes one, so
+    strikes at the gate start again from zero and its earlier answers still count toward its best
+    stars. Asking again while the gate is closed changes nothing."""
+    with connect() as conn:
+        who = player(conn, onyen)
+        run = owned_run(conn, who, run_id)
+        if run["outcome"] != "in_progress":
+            raise HTTPException(409, "This run has already finished.")
+        state = progress(conn, run_id)
+        if question_id not in state["order"]:
+            raise HTTPException(404, "Question does not belong to this run.")
+        if question_id in state["solved"]:
+            conn.execute("INSERT INTO aa.run_setbacks(run_id,question_id) VALUES (%s,%s)", (run_id, question_id))
+        return run_view(conn, run)
+
+
+def reference_answer(conn, question_id: UUID) -> dict | None:
+    """One winning answer for a question, in the form the game submits it. It is read from the
+    bank, never from a run's snapshot, so it stays out of everything the game is sent up front."""
+    return conn.execute("SELECT answer FROM aa.questions WHERE id=%s", (question_id,)).fetchone()["answer"]
+
+
 def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID,
                    kind: str, moment: int | None = None, choice: int | None = None) -> dict:
-    """Record a hint or a walkthrough decision without adding gameplay strikes."""
+    """Record a hint, a shown answer, or a walkthrough decision without adding gameplay strikes.
+    An "answer" event also returns the gate's reference answer; the gate then earns one star."""
     with connect() as conn:
         who = player(conn, onyen)
         run = owned_run(conn, who, run_id)
@@ -265,6 +290,7 @@ def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID
                                 (run_id, question_id)).fetchone()
         if not question:
             raise HTTPException(404, "Question does not belong to this run.")
+        shown = {"answer": reference_answer(conn, question_id)} if kind == "answer" else {}
         previous = conn.execute("SELECT * FROM aa.question_events WHERE run_id=%s AND request_id=%s",
                                 (run_id, request_id)).fetchone()
         if previous:
@@ -272,7 +298,7 @@ def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID
                    (("question_id", question_id), ("kind", kind), ("moment", moment), ("choice", choice))):
                 raise HTTPException(409, "A retry must contain the same learning event.")
             return {"is_correct": previous["is_correct"],
-                    "question_stats": question_stats(conn, run_id)[str(question_id)]}
+                    "question_stats": question_stats(conn, run_id)[str(question_id)], **shown}
         if run["outcome"] != "in_progress":
             raise HTTPException(409, "This run has already finished.")
         if question_id in progress(conn, run_id)["solved"]:
@@ -286,6 +312,9 @@ def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID
         if kind == "hint":
             if moment is not None or choice is not None or not public.get("hint"):
                 raise HTTPException(422, "This hint event is not valid for this question.")
+        elif kind == "answer":
+            if moment is not None or choice is not None or not shown["answer"]:
+                raise HTTPException(422, "This question has no answer to show.")
         elif kind == "walk_choice":
             payload = public.get("payload", {})
             if payload.get("kind") != "walk":
@@ -301,4 +330,4 @@ def learning_event(onyen: str, run_id: UUID, question_id: UUID, request_id: UUID
             (run_id,question_id,player_id,request_id,kind,moment,choice,is_correct)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (run_id, question_id, who["id"], request_id, kind, moment, choice, correct))
-        return {"is_correct": correct, "question_stats": question_stats(conn, run_id)[str(question_id)]}
+        return {"is_correct": correct, "question_stats": question_stats(conn, run_id)[str(question_id)], **shown}

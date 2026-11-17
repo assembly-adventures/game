@@ -35,6 +35,8 @@ The license text ships beside each font (`OFL.txt`) and is bundled into the web 
 - `images/memory_maze.svg`: the Level 2 badge, in the style of the other badges. Its title is set
   in Cinzel ([Google Fonts](https://fonts.google.com/specimen/Cinzel), © 2020 The Cinzel Project
   Authors, SIL Open Font License 1.1) and converted to outlines; the font itself is not shipped.
+- `images/timing_lab.svg`: the Level 4 badge, original vector art in the style of the other
+  badges. It has no lettering, so it uses no font.
 - `sprites/robot/*.svg` and `sprites/chomper/*.svg`: original vector art for the robot and
   the Chip Chomper (a corrupted FATAL_ERR pop-up window), drawn larger than their on-screen size. Edit them in any SVG editor
   (e.g., Inkscape) and keep each character's frames the same canvas size so animations

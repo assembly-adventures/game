@@ -30,9 +30,14 @@ class LearningEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question_id: UUID
     request_id: UUID
-    kind: Literal["hint", "walk_choice"]
+    kind: Literal["hint", "walk_choice", "answer"]
     moment: int | None = Field(default=None, ge=0, strict=True)
     choice: int | None = Field(default=None, ge=0, strict=True)
+
+
+class Reopen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_id: UUID
 
 
 class Attempt(BaseModel):
@@ -122,6 +127,10 @@ def router(authenticate, origin: str) -> APIRouter:
     @routes.post("/runs/{run_id}/attempts")
     def attempt(run_id: UUID, body: Attempt, onyen: str = Depends(user)) -> dict:
         return gameplay.attempt(onyen, run_id, **body.model_dump())
+
+    @routes.post("/runs/{run_id}/reopen")
+    def reopen(run_id: UUID, body: Reopen, onyen: str = Depends(user)) -> dict:
+        return gameplay.reopen(onyen, run_id, body.question_id)
 
     @routes.post("/runs/{run_id}/finish")
     def finish(run_id: UUID, onyen: str = Depends(user)) -> dict:

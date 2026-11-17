@@ -691,6 +691,14 @@ static func meets(test: Dictionary, result: Dictionary) -> bool:
 			return false
 	return not expect.get("returned", false) or int(result.pc) == EXIT
 
+## A reference answer as the line for each blank, for the level's Show answer.
+static func answer_lines(_room: Dictionary, response: Dictionary) -> Array:
+	var lines: Array = []
+	var chosen: Array = response.get("blanks", [])
+	for k in range(chosen.size()):
+		lines.append("blank %d: %s" % [k + 1, chosen[k]])
+	return lines
+
 ## Mirrors grade_code in server/puzzles.py for guest mode, where the game grades itself.
 static func grade(room: Dictionary, response: Dictionary) -> bool:
 	var chosen = response.get("blanks")

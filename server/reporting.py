@@ -13,6 +13,7 @@ from psycopg.errors import UniqueViolation
 
 from .call_stack import moments
 from .database import connect
+from .timing import edges
 from .puzzles import REGISTERS
 
 COURSE_TIMEZONE = ZoneInfo("America/New_York")
@@ -179,6 +180,20 @@ def instruction(button: dict) -> str:
     return f"{button['op']} {REGISTERS[button['rd']]}, {REGISTERS[button['rs1']]}, {last}"
 
 
+def wave_text(payload: dict, response: dict) -> list[str]:
+    """A drawn waveform in words (answer_lines in wave_room.gd): where each signal starts and
+    every edge after that, in the room's own units."""
+    def at(tick: int) -> str:
+        return f"{tick * payload['tick']:g} {payload['unit']}"
+
+    lines = []
+    for name in payload["draw"]:
+        wave = response["waves"][name]
+        changes = [f"{'rises' if value else 'falls'} at {at(tick)}" for tick, value in edges(wave)]
+        lines.append(f"{name}: starts at {wave[0]}" + "".join(f", {change}" for change in changes))
+    return lines
+
+
 def answer_text(kind: str, question_type: str, payload: dict, response: dict) -> list[str]:
     """A recorded answer as the lines the student saw. Option IDs are random in every run and
     puzzle answers are indexes, so both are read through that run's own snapshot. An answer this
@@ -205,6 +220,10 @@ def answer_text(kind: str, question_type: str, payload: dict, response: dict) ->
         if payload["kind"] == "walk":
             return [f"Move {n}: {entry['options'][choice]['label']}"
                     for n, (entry, choice) in enumerate(zip(moments(payload), response["choices"]), 1)]
+        if payload["kind"] == "wave":
+            return wave_text(payload, response)
+        if payload["kind"] == "table":
+            return [f"Blank {n}: {cell}" for n, cell in enumerate(response["cells"], 1)]
     except (KeyError, IndexError, TypeError, ValueError):
         pass
     return [json.dumps(response, sort_keys=True)]

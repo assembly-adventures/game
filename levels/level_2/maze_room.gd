@@ -701,6 +701,10 @@ static func goal_met(room: Dictionary, result: Dictionary) -> bool:
 			return false
 	return true
 
+## A reference answer as its program, a line per action, for the level's Show answer.
+static func answer_lines(_room: Dictionary, response: Dictionary) -> Array:
+	return response.get("program", []).duplicate()
+
 ## Mirrors grade_maze in server/puzzles.py for guest mode, where the game grades itself.
 static func grade(room: Dictionary, response: Dictionary) -> bool:
 	var program = response.get("program", [])

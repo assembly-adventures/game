@@ -19,7 +19,8 @@ const LEVELS := [
 		"scene": "res://levels/level_2/memory_maze.tscn"},
 	{"id": 3, "name": "Call Stack Tower", "at": Vector2(0.8, 0.22), "badge": "badge_3",
 		"icon": "res://images/call_stack_tower.svg", "scene": "res://levels/level_3/call_stack_tower.tscn"},
-	{"id": 4, "name": "The Stack", "at": Vector2(0.8, 0.74), "badge": "badge_4", "icon": "res://images/4.svg"},
+	{"id": 4, "name": "Timing Lab", "at": Vector2(0.8, 0.74), "badge": "badge_4", "icon": "res://images/timing_lab.svg",
+		"scene": "res://levels/level_4/timing_lab.tscn"},
 	{"id": 5, "name": "Code Tracing", "at": Vector2(0.5, 0.74), "badge": "badge_5", "icon": "res://images/5.svg"},
 	{"id": 6, "name": "Code Writing", "at": Vector2(0.2, 0.74), "badge": "badge_6", "icon": "res://images/6.svg"},
 	{"id": 7, "name": "Challenge", "at": Vector2(0.5, 0.48), "badge": "challenge_badge", "icon": "res://images/7.svg",
@@ -152,7 +153,7 @@ func _load_profile() -> void:
 		chips[level.id].set_state(active.get(level.id, false) and level.has("scene"), done)
 	board.place_characters()
 	if PlayerData.guest:
-		status_label.text = "Guest mode: Levels 1 to 3. Progress resets when you reload."
+		status_label.text = "Guest mode: Levels 1 to 4. Progress resets when you reload."
 	else:
 		status_label.text = "Progress is saved to your UNC account."
 	_update_progress()

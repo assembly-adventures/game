@@ -6,12 +6,15 @@ const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const MazeRoom := preload("res://levels/level_2/maze_room.gd")
 const CodeRoom := preload("res://levels/level_2/code_room.gd")
 const CallMachine := preload("res://levels/level_3/call_machine.gd")
+const WaveRoom := preload("res://levels/level_4/wave_room.gd")
+const TableRoom := preload("res://levels/level_4/table_room.gd")
 ## The levels guest mode can play, each from a copy of its gates kept in sync with the database. A
 ## level's copy is a list of rooms, or its whole bank and draw rule when its runs draw their rooms.
 const GUEST_LEVELS := {
 	1: {"rooms": "res://levels/level_1/guest_rooms.json", "badge": {"slug": "badge_1", "name": "Basic Instructions Master"}},
 	2: {"rooms": "res://levels/level_2/guest_rooms.json", "badge": {"slug": "badge_2", "name": "Memory Master"}},
 	3: {"rooms": "res://levels/level_3/guest_rooms.json", "badge": {"slug": "badge_3", "name": "Stack Master"}},
+	4: {"rooms": "res://levels/level_4/guest_rooms.json", "badge": {"slug": "badge_4", "name": "Timing Master"}},
 }
 
 var earned_badges: Array[String] = []
@@ -34,6 +37,7 @@ var guest_banks: Dictionary = {}
 var guest_rooms: Dictionary = {}
 var guest_solved: Dictionary = {}
 var guest_strikes: Dictionary = {}
+var guest_shown: Dictionary = {}  # Per level: the gates whose answer was shown, which earn one star.
 var guest_run_done: Dictionary = {}
 var guest_badges: Array = []
 
@@ -131,6 +135,7 @@ func start_guest() -> void:
 		guest_rooms[level] = _guest_draw(guest_banks[level])
 		guest_solved[level] = []
 		guest_strikes[level] = {}
+		guest_shown[level] = []
 		guest_run_done[level] = false
 
 # Mirrors the responses of server/gameplay.py for the guest levels, graded by the client interpreters.
@@ -146,23 +151,31 @@ func _guest_request(path: String, body: Dictionary) -> Dictionary:
 	if path == "/runs":
 		var level := int(body.get("level_id", 0))
 		if not GUEST_LEVELS.has(level):
-			return {"ok": false, "error": "Guest mode only includes Levels 1 to 3.", "status": 404}
+			return {"ok": false, "error": "Guest mode only includes Levels 1 to 4.", "status": 404}
 		if guest_run_done[level]:
 			guest_rooms[level] = _guest_draw(guest_banks[level])
 			guest_solved[level] = []
 			guest_strikes[level] = {}
+			guest_shown[level] = []
 			guest_run_done[level] = false
-		var questions: Array = []
-		for room in guest_rooms[level]:
-			questions.append({"id": _guest_id(level, room), "type": "puzzle", "prompt": room.prompt,
-				"code_snippet": room.get("code_snippet"), "hint": room.hint, "payload": room.payload})
-		return {"ok": true, "data": {"id": "guest-%d" % level, "level_id": level, "outcome": "in_progress",
-			"questions": questions, "solved_question_ids": guest_solved[level].duplicate(),
-			"strikes": guest_strikes[level].duplicate()}}
-	var parts := path.split("/")  # "", "runs", "guest-<level>", "attempts" or "finish"
+		return {"ok": true, "data": _guest_run(level)}
+	var parts := path.split("/")  # "", "runs", "guest-<level>", then "attempts", "events", "reopen", or "finish"
 	var level := int(parts[2].trim_prefix("guest-")) if parts.size() == 4 and parts[2].begins_with("guest-") else 0
 	if not GUEST_LEVELS.has(level):
 		return {"ok": false, "error": "Guest mode cannot reach the server.", "status": 404}
+	if parts[3] == "reopen":
+		# Mirrors reopen() in server/gameplay.py: a gate the player goes back to closes again.
+		guest_solved[level].erase(body.question_id)
+		guest_strikes[level].erase(body.question_id)
+		return {"ok": true, "data": _guest_run(level)}
+	if parts[3] == "events":
+		# The only event guest mode answers is Show answer, which caps the gate at one star.
+		for room in guest_rooms[level]:
+			if _guest_id(level, room) == body.question_id and body.get("kind") == "answer" and room.has("answer"):
+				if body.question_id not in guest_shown[level]:
+					guest_shown[level].append(body.question_id)
+				return {"ok": true, "data": {"is_correct": null, "answer": room.answer, "question_stats": {}}}
+		return {"ok": false, "error": "This question has no answer to show.", "status": 422}
 	if parts[3] == "attempts":
 		var rooms: Array = guest_rooms[level]
 		for i in range(rooms.size()):
@@ -177,6 +190,16 @@ func _guest_request(path: String, body: Dictionary) -> Dictionary:
 		guest_run_done[level] = true
 		return {"ok": true, "data": _guest_profile()}
 	return {"ok": false, "error": "Guest mode cannot reach the server.", "status": 404}
+
+# A guest run as server/gameplay.py's run_view gives it: its rooms without their answers, the gates
+# open now, and the strikes on the others.
+func _guest_run(level: int) -> Dictionary:
+	var questions: Array = []
+	for room in guest_rooms[level]:
+		questions.append({"id": _guest_id(level, room), "type": "puzzle", "prompt": room.prompt,
+			"code_snippet": room.get("code_snippet"), "hint": room.hint, "payload": room.payload})
+	return {"id": "guest-%d" % level, "level_id": level, "outcome": "in_progress", "questions": questions,
+		"solved_question_ids": guest_solved[level].duplicate(), "strikes": guest_strikes[level].duplicate()}
 
 # Mirrors draw() in server/gameplay.py: without a draw rule a run plays every room; with one, each
 # pool in the rule gives all its rooms, or `take` of them at random, kept in ordinal order.
@@ -215,11 +238,17 @@ func _guest_attempt(level: int, index: int, response: Dictionary) -> Dictionary:
 			correct = CodeRoom.grade(payload, response)
 		"walk":
 			correct = CallMachine.grade(payload, response)
+		"wave":
+			correct = WaveRoom.grade(payload, response)
+		"table":
+			correct = TableRoom.grade(payload, response)
 		_:
 			correct = PuzzleRoom.grade(payload, response)
 	var result := {"is_correct": correct, "explanation": room.explanation, "strikes": 0, "setback_question_id": null}
 	if correct:
 		solved.append(id)
+		if id in guest_shown[level]:
+			result.stars = 1
 		if index + 1 < rooms.size():
 			strikes.erase(_guest_id(level, rooms[index + 1]))
 		return result

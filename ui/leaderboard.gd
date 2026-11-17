@@ -3,7 +3,7 @@ extends Control
 
 const Style := preload("res://ui/style.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
-const LEVEL_NAMES := ["1 · Registers", "2 · Memory Maze", "3 · Call Stack Tower"]
+const LEVEL_NAMES := ["1 · Registers", "2 · Memory Maze", "3 · Call Stack Tower", "4 · Timing Lab"]
 
 var level_id := 1
 var week_offset := 0

@@ -40,6 +40,14 @@
     "goal": {},
     "max_moves": 6,
     "par": 4
+   },
+   "answer": {
+    "program": [
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4"
+    ]
    }
   },
   {
@@ -79,20 +87,30 @@
     },
     "max_moves": 8,
     "par": 6
+   },
+   "answer": {
+    "program": [
+     "lw a2, 12(a0)",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4"
+    ]
    }
   },
   {
    "ordinal": 3,
    "pool": "tutorial",
-   "prompt": "Store 8 in arr[3] to open its door, then reach the exit.\nsw writes a register into memory, and t2 holds 8.",
-   "code_snippet": "arr[3] = 8;",
-   "hint": "Click arr[3] and store t2 there: sw t2, 12(a0) from where you start.",
-   "explanation": "M[R[rs1] + offset] = R[rs2]: sw t2, 12(a0) writes 8 over the 40 at 0x400C (the slides' sw x7, 12(x10)), so the array is now 5, 90, 100, 8, 11.",
+   "prompt": "Store 8 in arr[2] to open its door, then reach the exit.\nsw writes a register into memory, and t2 holds 8.",
+   "code_snippet": "arr[2] = 8;",
+   "hint": "Click arr[2] and store t2 there: sw t2, 8(a0) from where you start.",
+   "explanation": "M[R[rs1] + offset] = R[rs2]: arr[2] is 2 ints × 4 bytes = 8 bytes past a0, so sw t2, 8(a0) writes 8 over the 100 at 0x4008. The array is now 5, 90, 8, 40, 11.",
    "payload": {
     "kind": "maze",
     "base": 16384,
     "map": [
-     "S..D.E"
+     "S.D..E"
     ],
     "values": {
      "0x4000": 5,
@@ -102,7 +120,7 @@
      "0x4010": 11
     },
     "doors": {
-     "0x400c": 8
+     "0x4008": 8
     },
     "hands": [
      "t2"
@@ -120,6 +138,16 @@
     "goal": {},
     "max_moves": 8,
     "par": 6
+   },
+   "answer": {
+    "program": [
+     "sw t2, 8(a0)",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4"
+    ]
    }
   },
   {
@@ -146,6 +174,13 @@
     "goal": {},
     "max_moves": 3,
     "par": 2
+   },
+   "answer": {
+    "program": [
+     "loop:",
+     "addi a0, a0, 4",
+     "bne a0, a1, loop"
+    ]
    }
   },
   {
@@ -167,6 +202,15 @@
     "goal": {},
     "max_moves": 7,
     "par": 5
+   },
+   "answer": {
+    "program": [
+     "addi a0, a0, 16",
+     "addi a0, a0, 16",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4"
+    ]
    }
   },
   {
@@ -205,6 +249,18 @@
     "goal": {},
     "max_moves": 10,
     "par": 8
+   },
+   "answer": {
+    "program": [
+     "addi a0, a0, 4",
+     "lw t0, 20(a0)",
+     "addi t0, t0, 5",
+     "sw t0, 20(a0)",
+     "addi a0, a0, 16",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, -16"
+    ]
    }
   },
   {
@@ -255,6 +311,18 @@
     },
     "max_moves": 10,
     "par": 8
+   },
+   "answer": {
+    "program": [
+     "lw t0, -12(a0)",
+     "lw t1, 28(a0)",
+     "sw t1, -12(a0)",
+     "sw t0, 28(a0)",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 20",
+     "addi a0, a0, 20"
+    ]
    }
   },
   {
@@ -336,6 +404,12 @@
       }
      }
     ]
+   },
+   "answer": {
+    "blanks": [
+     "slli t3, t2, 2",
+     "lw t5, 4(t3)"
+    ]
    }
   },
   {
@@ -405,6 +479,12 @@
       }
      }
     ]
+   },
+   "answer": {
+    "blanks": [
+     "beq t0, x0, else",
+     "j done"
+    ]
    }
   },
   {
@@ -440,65 +520,73 @@
     "goal": {},
     "max_moves": 4,
     "par": 3
+   },
+   "answer": {
+    "program": [
+     "loop:",
+     "addi a0, a0, 4",
+     "lw t1, 0(a0)",
+     "bne t1, x0, loop"
+    ]
    }
   },
   {
    "ordinal": 11,
    "pool": "loops",
-   "prompt": "Copy a[] into the vault below it, then reach the exit.\nTeach the robot one int, then Repeat. This room is 7 words wide.",
-   "code_snippet": "for (i = 0; i < 6; i++) vault[i] = a[i];",
-   "hint": "Tap loop:, load the int under you, store it 28 bytes on (a row down), step right. Then Repeat while a0 < a1.",
-   "explanation": "Everything in the loop is relative to a0, so the same four lines copy every int: lw, sw 28(a0), step 4, and blt back while a0 < a1. bge would jump back only once a0 ≥ a1.",
+   "prompt": "Open every door: each one needs 9, and t2 holds 9.\nTeach the robot one door, then Repeat. A store can reach the word ahead of you.",
+   "code_snippet": "do { p[1] = 9; p++; } while (p != end);   // p is a0, end is a1",
+   "hint": "Tap loop:, store t2 one word ahead with sw t2, 4(a0), step right, then Repeat while a0 ≠ a1.",
+   "explanation": "sw t2, 4(a0) writes the word ahead of the robot, so each door is open by the time it steps there. Three lines, written once, run six times: the loop stops when a0 reaches the address in a1.",
    "payload": {
     "kind": "maze",
     "base": 16384,
     "map": [
-     "S.....E",
-     "BBBBBB#"
+     "SDDDDDE"
     ],
     "values": {
-     "0x4000": 3,
-     "0x4004": 1,
-     "0x4008": 4,
-     "0x400c": 1,
-     "0x4010": 5,
+     "0x4004": 4,
+     "0x4008": 1,
+     "0x400c": 7,
+     "0x4010": 2,
+     "0x4014": 6
+    },
+    "doors": {
+     "0x4004": 9,
+     "0x4008": 9,
+     "0x400c": 9,
+     "0x4010": 9,
      "0x4014": 9
     },
     "hands": [
-     "t0"
+     "t2"
     ],
     "registers": {
+     "t2": 9,
      "a1": 16408
     },
     "arrays": [
      {
-      "name": "a",
-      "at": "0x4000",
-      "length": 6
-     },
-     {
-      "name": "vault",
-      "at": "0x401c",
-      "length": 6
+      "name": "door",
+      "at": "0x4004",
+      "length": 5
      }
     ],
     "loop": true,
     "repeat": [
-     "blt a0, a1, loop",
-     "bge a0, a1, loop"
+     "bne a0, a1, loop",
+     "beq a0, a1, loop"
     ],
-    "goal": {
-     "memory": {
-      "0x401c": 3,
-      "0x4020": 1,
-      "0x4024": 4,
-      "0x4028": 1,
-      "0x402c": 5,
-      "0x4030": 9
-     }
-    },
-    "max_moves": 5,
-    "par": 4
+    "goal": {},
+    "max_moves": 4,
+    "par": 3
+   },
+   "answer": {
+    "program": [
+     "loop:",
+     "sw t2, 4(a0)",
+     "addi a0, a0, 4",
+     "bne a0, a1, loop"
+    ]
    }
   },
   {
@@ -557,6 +645,16 @@
     },
     "max_moves": 6,
     "par": 5
+   },
+   "answer": {
+    "program": [
+     "loop:",
+     "lw t1, 0(a0)",
+     "add t2, t2, t1",
+     "addi a0, a0, 4",
+     "addi t0, t0, 1",
+     "blt t0, t6, loop"
+    ]
    }
   },
   {
@@ -641,6 +739,12 @@
       }
      }
     ]
+   },
+   "answer": {
+    "blanks": [
+     "sw t4, 0(t3)",
+     "bge t0, x0, loop"
+    ]
    }
   },
   {
@@ -698,15 +802,21 @@
       }
      }
     ]
+   },
+   "answer": {
+    "blanks": [
+     "jal ra, func",
+     "jalr x0, 0(ra)"
+    ]
    }
   },
   {
    "ordinal": 15,
    "pool": "procedures",
-   "prompt": "Fill the blanks so main stores func(6) in result and returns.\nmain saves ra and a0 on the stack before the call and restores both before returning.",
-   "code_snippet": "result = func(6);   // func(x) returns x + 3",
-   "hint": "Make room with addi sp, sp, -8, save ra at 4(sp) before jal overwrites it, and store func's answer before lw a0, 0(sp) brings back main's old a0.",
-   "explanation": "main allocates 8 bytes (addi sp, sp, -8). jal ra, func overwrites ra with 0x114, which is why main saved its own return address first. func returns 9 in a0, but lw a0, 0(sp) brings back main's old a0 (2), so the answer has to be stored before that.",
+   "prompt": "Fill the blanks so main stores twice(7) in total and returns.\nmain saves ra and a0 on the stack before the call and restores both before returning.",
+   "code_snippet": "total = twice(7);   // twice(x) returns x + x",
+   "hint": "Make room with addi sp, sp, -8, save ra at 4(sp) before jal overwrites it, and store twice's answer before lw a0, 0(sp) brings back main's old a0.",
+   "explanation": "main allocates 8 bytes (addi sp, sp, -8). jal ra, twice overwrites ra with 0x114, which is why main saved its own return address first. twice returns 14 in a0, but lw a0, 0(sp) brings back main's old a0 (3), so the answer has to be stored before that.",
    "payload": {
     "kind": "code",
     "code": [
@@ -715,32 +825,32 @@
      },
      {
       "blank": [
-       "addi sp, sp, 8",
        "addi sp, sp, -4",
-       "addi sp, sp, -8"
+       "addi sp, sp, -8",
+       "addi sp, sp, 8"
       ]
      },
      {
       "blank": [
+       "sw a0, 4(sp)",
        "sw ra, 4(sp)",
-       "lw ra, 4(sp)",
-       "sw a0, 4(sp)"
+       "lw ra, 4(sp)"
       ]
      },
      {
       "line": "sw a0, 0(sp)"
      },
      {
-      "line": "addi a0, x0, 6"
+      "line": "addi a0, x0, 7"
      },
      {
-      "line": "jal ra, func"
+      "line": "jal ra, twice"
      },
      {
       "blank": [
-       "sw a0, 0(sp)",
        "sw a0, 0(t1)",
-       "lw a0, 0(sp)"
+       "lw a0, 0(sp)",
+       "sw a0, 0(sp)"
       ]
      },
      {
@@ -756,10 +866,10 @@
       "line": "jalr x0, 0(ra)"
      },
      {
-      "label": "func"
+      "label": "twice"
      },
      {
-      "line": "addi a0, a0, 3"
+      "line": "add a0, a0, a0"
      },
      {
       "line": "jalr x0, 0(ra)"
@@ -769,7 +879,7 @@
      "base": 8192,
      "blocks": [
       {
-       "label": "result",
+       "label": "total",
        "words": [
         0
        ]
@@ -781,25 +891,32 @@
      "words": 4
     },
     "registers": {
-     "a0": 2,
-     "t1": "result"
+     "a0": 3,
+     "t1": "total"
     },
     "names": {
-     "t1": "&result"
+     "t1": "&total"
     },
     "tests": [
      {
       "expect": {
        "memory": {
-        "result": 9
+        "total": 14
        },
        "registers": {
-        "a0": 2,
+        "a0": 3,
         "sp": 32752
        },
        "returned": true
       }
      }
+    ]
+   },
+   "answer": {
+    "blanks": [
+     "addi sp, sp, -8",
+     "sw ra, 4(sp)",
+     "sw a0, 0(t1)"
     ]
    }
   },
@@ -865,6 +982,321 @@
     },
     "max_moves": 5,
     "par": 4
+   },
+   "answer": {
+    "program": [
+     "loop:",
+     "lw t0, 0(a0)",
+     "sw t0, -28(a0)",
+     "addi a0, a0, 4",
+     "bne a0, a1, loop"
+    ]
+   }
+  },
+  {
+   "ordinal": 17,
+   "pool": "memory",
+   "prompt": "Load row 1, column 2 of the grid into a2, then reach the exit.\nA 2D array is stored one row after another. This grid is 4 wide, so grid[1][2] is word 1 × 4 + 2 = 6.",
+   "code_snippet": "a2 = grid[1][2];   // int grid[3][4]",
+   "hint": "Click the word in row 1, column 2 (the rows count from 0) and load it. From the start it's 6 words on: lw a2, 24(a0).",
+   "explanation": "C stores a 2D array row by row (row-major order), so grid[r][c] is word r × 4 + c of this 4-wide grid. grid[1][2] is word 6, at 0x4000 + 6 × 4 = 0x4018, which holds 9. After one step right, the same word is lw a2, 20(a0).",
+   "payload": {
+    "kind": "maze",
+    "base": 16384,
+    "map": [
+     "S..E",
+     "BBBB",
+     "BBBB"
+    ],
+    "values": {
+     "0x4000": 3,
+     "0x4004": 8,
+     "0x4008": 1,
+     "0x400c": 6,
+     "0x4010": 7,
+     "0x4014": 2,
+     "0x4018": 9,
+     "0x401c": 4,
+     "0x4020": 5,
+     "0x4024": 11,
+     "0x4028": 12,
+     "0x402c": 10
+    },
+    "hands": [
+     "a2"
+    ],
+    "arrays": [
+     {
+      "name": "row0",
+      "at": "0x4000",
+      "length": 4
+     },
+     {
+      "name": "row1",
+      "at": "0x4010",
+      "length": 4
+     },
+     {
+      "name": "row2",
+      "at": "0x4020",
+      "length": 4
+     }
+    ],
+    "goal": {
+     "registers": {
+      "a2": 9
+     }
+    },
+    "max_moves": 6,
+    "par": 4
+   },
+   "answer": {
+    "program": [
+     "lw a2, 24(a0)",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4",
+     "addi a0, a0, 4"
+    ]
+   }
+  },
+  {
+   "ordinal": 18,
+   "pool": "branches",
+   "prompt": "Fill the blanks so x ends up as its absolute value.\nx is a0. It's tested with x = -5, 3, and 0, so numbers that aren't negative have to be left alone.",
+   "code_snippet": "if (x < 0) x = -x;",
+   "hint": "The branch skips the negation, so it tests the opposite of the C: x ≥ 0. And -x is 0 - x.",
+   "explanation": "An if without an else is one branch over its body: bge a0, x0, done skips the body when x ≥ 0, the opposite of the C condition. sub a0, x0, a0 computes 0 - x, which is how RISC-V negates.",
+   "payload": {
+    "kind": "code",
+    "code": [
+     {
+      "blank": [
+       "blt a0, x0, done",
+       "bge a0, x0, done",
+       "beq a0, x0, done"
+      ]
+     },
+     {
+      "blank": [
+       "sub a0, a0, x0",
+       "addi a0, a0, -1",
+       "sub a0, x0, a0"
+      ]
+     },
+     {
+      "label": "done"
+     }
+    ],
+    "names": {
+     "a0": "x"
+    },
+    "tests": [
+     {
+      "registers": {
+       "a0": -5
+      },
+      "expect": {
+       "registers": {
+        "a0": 5
+       }
+      }
+     },
+     {
+      "registers": {
+       "a0": 3
+      },
+      "expect": {
+       "registers": {
+        "a0": 3
+       }
+      }
+     },
+     {
+      "registers": {
+       "a0": 0
+      },
+      "expect": {
+       "registers": {
+        "a0": 0
+       }
+      }
+     }
+    ]
+   },
+   "answer": {
+    "blanks": [
+     "bge a0, x0, done",
+     "sub a0, x0, a0"
+    ]
+   }
+  },
+  {
+   "ordinal": 19,
+   "pool": "branches",
+   "prompt": "Fill the blank so ok is 1 only when i is a valid index: 0 ≤ i < n.\ni is a0, n is a1, and ok is a2. It's tested with i = 2, 4, and -1, all with n = 4.",
+   "code_snippet": "ok = (i >= 0 && i < n);",
+   "hint": "Read as an unsigned number, -1 is 0xFFFFFFFF: about 4 billion. One unsigned comparison rejects it along with every i ≥ n.",
+   "explanation": "bgeu compares unsigned, and a negative i read as unsigned is huge (-1 is 0xFFFFFFFF), so it counts as ≥ n. One branch checks both bounds. bge would let i = -1 through, since -1 < 4 as signed numbers.",
+   "payload": {
+    "kind": "code",
+    "code": [
+     {
+      "line": "addi a2, x0, 0"
+     },
+     {
+      "blank": [
+       "bge a0, a1, done",
+       "bltu a0, a1, done",
+       "bgeu a0, a1, done"
+      ]
+     },
+     {
+      "line": "addi a2, x0, 1"
+     },
+     {
+      "label": "done"
+     }
+    ],
+    "names": {
+     "a0": "i",
+     "a1": "n",
+     "a2": "ok"
+    },
+    "tests": [
+     {
+      "registers": {
+       "a0": 2,
+       "a1": 4
+      },
+      "expect": {
+       "registers": {
+        "a2": 1
+       }
+      }
+     },
+     {
+      "registers": {
+       "a0": 4,
+       "a1": 4
+      },
+      "expect": {
+       "registers": {
+        "a2": 0
+       }
+      }
+     },
+     {
+      "registers": {
+       "a0": -1,
+       "a1": 4
+      },
+      "expect": {
+       "registers": {
+        "a2": 0
+       }
+      }
+     }
+    ]
+   },
+   "answer": {
+    "blanks": [
+     "bgeu a0, a1, done"
+    ]
+   }
+  },
+  {
+   "ordinal": 20,
+   "pool": "loops",
+   "prompt": "Fill the blanks so the loop leaves the largest int of arr in a0.\ni is t0, n is t6 (5), and max is a0, which starts at 0. The test checks max and where i ends up.",
+   "code_snippet": "for (i = 0; i < n; i++) if (arr[i] > max) max = arr[i];",
+   "hint": "Skip the update when max is already at least arr[i], and loop back while i < n.",
+   "explanation": "The if inside the loop is a branch over one line: bge a0, t4, skip leaves max alone unless arr[i] is bigger. blt t0, t6, loop goes round while i < 5, so max climbs 3, 9, 12 and i ends at 5.",
+   "payload": {
+    "kind": "code",
+    "code": [
+     {
+      "line": "addi t0, x0, 0"
+     },
+     {
+      "line": "la t1, arr"
+     },
+     {
+      "label": "loop"
+     },
+     {
+      "line": "slli t2, t0, 2"
+     },
+     {
+      "line": "add t3, t1, t2"
+     },
+     {
+      "line": "lw t4, 0(t3)"
+     },
+     {
+      "blank": [
+       "blt a0, t4, skip",
+       "bge t4, a0, skip",
+       "bge a0, t4, skip"
+      ]
+     },
+     {
+      "line": "add a0, t4, x0"
+     },
+     {
+      "label": "skip"
+     },
+     {
+      "line": "addi t0, t0, 1"
+     },
+     {
+      "blank": [
+       "bge t0, t6, loop",
+       "blt t0, t6, loop",
+       "bne t0, x0, loop"
+      ]
+     }
+    ],
+    "data": {
+     "base": 8192,
+     "blocks": [
+      {
+       "label": "arr",
+       "words": [
+        3,
+        9,
+        4,
+        12,
+        7
+       ]
+      }
+     ]
+    },
+    "registers": {
+     "t6": 5,
+     "a0": 0
+    },
+    "names": {
+     "t0": "i",
+     "t1": "arr",
+     "t6": "n",
+     "a0": "max"
+    },
+    "tests": [
+     {
+      "expect": {
+       "registers": {
+        "a0": 12,
+        "t0": 5
+       }
+      }
+     }
+    ]
+   },
+   "answer": {
+    "blanks": [
+     "bge a0, t4, skip",
+     "blt t0, t6, loop"
+    ]
    }
   }
  ]

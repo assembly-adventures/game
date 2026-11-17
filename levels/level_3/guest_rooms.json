@@ -90,6 +90,11 @@
      "t0"
     ],
     "intro": "The Chomper calls plus1(4): a0 = 4, and ra = 0x400, the Chomper's own address, so plus1 can come back."
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -164,6 +169,11 @@
      "sp"
     ],
     "intro": "The Chomper calls plus2(5) with ra = 0x400. Keep an eye on ra as plus2 makes its calls."
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -253,6 +263,11 @@
      "sp"
     ],
     "intro": "The Chomper calls plusx(5). plusx will need x (5) again after its call."
+   },
+   "answer": {
+    "choices": [
+     1
+    ]
    }
   },
   {
@@ -342,6 +357,11 @@
      "sp"
     ],
     "intro": "The Chomper calls plusx(5). Watch s0: it holds the Chomper's own value (0x5A08) to start."
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -436,6 +456,11 @@
      "sp"
     ],
     "intro": "The Chomper calls sqr(3). Each call to sqr will hang a new floor below the last."
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -540,6 +565,11 @@
     ],
     "intro": "The Chomper calls fact(3). This stack is short: 12 words.",
     "stack_words": 12
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -639,6 +669,11 @@
      "sp"
     ],
     "intro": "The Chomper calls fib(3). Watch the floors come and go: fib(2) goes down two more, then fib(1)."
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   },
   {
@@ -738,6 +773,11 @@
      "start": 8,
      "every": 8
     }
+   },
+   "answer": {
+    "choices": [
+     0
+    ]
    }
   }
  ]

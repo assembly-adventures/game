@@ -41,7 +41,7 @@ number and can choose again.
 
 ## Weekly leaderboard
 
-All signed-in players form one group, with separate tabs for Levels 1–3. There is
+All signed-in players form one group, with separate tabs for Levels 1–4. There is
 no roster or section membership. Normal question draws remain random, so run
 difficulty can vary. Competition has no effect on badges or level availability.
 
@@ -53,8 +53,10 @@ refreshes on opening, on demand, and every minute, and offers previous weeks.
 Each player's best completed run per level is selected by **highest stars, then
 fewest mistakes in that same run**. Equal results share a rank; replay scores are
 never summed. Stars follow existing room rules: at most three per gate, with
-deductions for hints, exceeding instruction/frame par, or mistakes in code/tower
-rooms. A mistake means a failed submitted answer or wrong walkthrough decision.
+deductions for hints, exceeding instruction/frame par, or mistakes in
+code/tower/timing rooms. A gate whose answer was shown (**Show answer**) earns
+one star. A player who goes back to an open gate keeps the best stars any of
+their correct answers to it earned. A mistake means a failed submitted answer or wrong walkthrough decision.
 Undo, free planning, and unsubmitted maze actions are not mistakes. Hints and
 mistakes survive reloads and setbacks within the run.
 
@@ -100,7 +102,8 @@ the application pods to load it; the exact commands are in
   progress and recent answer history.
 
 Answers appear as students saw them: option text, Level 1 instructions, Level 2
-program lines, or Level 3 moves (`Move 2: …`). Recorded option IDs are random in
+program lines, Level 3 moves (`Move 2: …`), or a Level 4 answer (each drawn signal as where it starts and when it rises and
+falls, or each blank's entry). Recorded option IDs are random in
 every run, so the server reads each answer through its run's snapshot and counts
 identical answers together across runs. Answers it cannot read, such as those
 from retired rooms, appear as recorded JSON.

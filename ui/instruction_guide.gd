@@ -2,13 +2,18 @@ extends Control
 ## The instruction guide: for each instruction on the current gate, what its abbreviation stands
 ## for (the letters it takes are lit up), how it's written, and what it does, then the registers the
 ## gate uses. The level runner opens it from its top bar or with the I key and fills it from the
-## room on screen; a click outside the panel, Escape, or I closes it.
+## room on screen; a click outside the panel, Escape, or I closes it. A room without assembly can
+## give the guide its own title, legend, and sections of entries instead (Level 4 explains the
+## gates and the pipeline's words this way), and an entry can show a drawing in place of its code.
 
 signal toggled(open: bool)
 
 const Style := preload("res://ui/style.gd")
 const Registers := preload("res://ui/registers.gd")
 const WIDTH := 640.0
+const TITLE := "Instruction guide"
+const LEGEND := "rd is the register an instruction writes; rs1 and rs2 are registers it reads. imm and offset are " \
+	+ "numbers in the instruction, and M[a] is the word of memory at address a."
 ## Every instruction the game uses, in the order the guide lists them. "name" spells out the
 ## abbreviation with the letters it takes in {braces}; "form" is how it's written, "does" what it
 ## does (M[a] is the word of memory at address a), and "more" says the rest. j and la are
@@ -110,6 +115,8 @@ const REGISTER_GROUPS := [
 var panel: PanelContainer
 var scroll: ScrollContainer
 var entries: VBoxContainer
+var heading_label: Label
+var legend_label: Label
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -132,7 +139,8 @@ func _init() -> void:
 	var top := HBoxContainer.new()
 	column.add_child(top)
 	var heading := Label.new()
-	heading.text = "Instruction guide"
+	heading_label = heading
+	heading.text = TITLE
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_theme_font_size_override("font_size", 22)
 	top.add_child(heading)
@@ -148,8 +156,8 @@ func _init() -> void:
 	close_button.pressed.connect(close)
 	top.add_child(close_button)
 	var legend := Label.new()
-	legend.text = "rd is the register an instruction writes; rs1 and rs2 are registers it reads. imm and offset are " \
-		+ "numbers in the instruction, and M[a] is the word of memory at address a."
+	legend_label = legend
+	legend.text = LEGEND
 	legend.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	legend.add_theme_font_size_override("font_size", 13)
 	legend.add_theme_color_override("font_color", Color(Style.TEXT, 0.6))
@@ -164,9 +172,20 @@ func _init() -> void:
 
 ## Opens the guide for a room, its panel hanging below `anchor` with its right edge there. `room`
 ## holds "lines", the assembly the room shows or lets the player write, and optionally "registers"
-## it shows besides those (like pc).
+## it shows besides those (like pc). It may also hold a "title" and "legend" for the panel, and
+## "sections": each a "heading" and its "entries", an entry being a "code" (or an "icon", a control
+## drawn in its place), a "color", a "title" whose {braced} letters are lit, optional "forms" (two
+## short lines of code), and a sentence of "more".
 func open(room: Dictionary, anchor: Vector2) -> void:
+	heading_label.text = str(room.get("title", TITLE))
+	legend_label.text = str(room.get("legend", LEGEND))
 	_fill(room.get("lines", []), room.get("registers", []))
+	for section in room.get("sections", []):
+		entries.add_child(_heading(str(section.heading)))
+		for item in section.entries:
+			var color: Color = item.get("color", Style.GOLD)
+			entries.add_child(_entry(str(item.get("code", "")), color, spelled(str(item.title), color), item.get("forms", []),
+				str(item.more), item.get("icon")))
 	show()
 	panel.modulate.a = 0.0
 	scroll.custom_minimum_size.y = 0.0
@@ -290,10 +309,14 @@ func _register(group: Dictionary, present: Array) -> Control:
 	return _entry(str(group.short), Style.CYAN.lightened(0.3), title, [], str(group.more))
 
 ## One entry: a short code on the left; a title, an optional line of code, and a sentence beside it.
-func _entry(code: String, color: Color, title: String, forms: Array, more: String) -> Control:
+func _entry(code: String, color: Color, title: String, forms: Array, more: String, icon: Control = null) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
+	if icon != null:
+		icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		row.add_child(icon)
 	var short := Label.new()
+	short.visible = icon == null
 	short.text = code
 	short.custom_minimum_size = Vector2(76, 0)
 	short.size_flags_vertical = Control.SIZE_SHRINK_BEGIN  # Level with the entry's title.

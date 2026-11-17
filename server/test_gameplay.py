@@ -17,17 +17,19 @@ from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
 from server.gameplay import draw, register_player, replay
 from server.test_call_stack import SOLUTIONS as TOWER_SOLUTIONS
+from server.test_timing import SOLUTIONS as TIMING_SOLUTIONS
 from server.puzzles import grade_puzzle
 from server.test_puzzles import BANK, GATE_SOLUTIONS, LEVEL1, SOLUTIONS, answer
 
 
-# One winning response per gate, keyed by level and bank ordinal: button presses for Level 1
-# (db/migrations/0005_level1_puzzles.sql and 0010), programs or filled blanks for Level 2 (0007), and
-# the moves made at each moment for Level 3 (0012).
+# One winning response per gate, keyed by level and bank ordinal: button presses for Level 1,
+# programs or filled blanks for Level 2, the moves made at each moment for Level 3, and drawn
+# waveforms or filled cells for Level 4. They are the reference answers kept with the rooms in levels/level_<n>/guest_rooms.json.
 REFERENCE = {
     1: {ordinal: {"moves": moves} for ordinal, moves in GATE_SOLUTIONS.items()},
     2: {ordinal: answer(ordinal) for ordinal in SOLUTIONS},
     3: TOWER_SOLUTIONS,
+    4: TIMING_SOLUTIONS,
 }
 
 
@@ -52,9 +54,9 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(len(ordinals), 10)
             self.assertEqual(ordinals[:4], [1, 2, 3, 4])  # The tutorial, in order.
             self.assertEqual(ordinals[7:], [14, 15, 16])  # Both procedure rooms, then the race.
-            self.assertIn(ordinals[4], [5, 6, 7, 8])
-            self.assertIn(ordinals[5], [9, 10])
-            self.assertIn(ordinals[6], [11, 12, 13])
+            self.assertIn(ordinals[4], [5, 6, 7, 8, 17])
+            self.assertIn(ordinals[5], [9, 10, 18, 19])
+            self.assertIn(ordinals[6], [11, 12, 13, 20])
         self.assertGreater(len({tuple(ordinals) for ordinals in runs}), 5)
         self.assertEqual(draw({"draw": None}, bank), bank)
 
@@ -147,8 +149,8 @@ class GameplayTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200, result.text)
             self.assertEqual(result.json()['badges'][0]['slug'], 'badge_1')
         profile = self.client.get('/api/me').json()
-        # One of the three active badges (levels 1 to 3).
-        self.assertEqual((round(profile['progress_ratio'], 4), profile['badges_total']), (0.3333, 3))
+        # One of the four active badges (levels 1 to 4).
+        self.assertEqual((round(profile['progress_ratio'], 4), profile['badges_total']), (0.25, 4))
         self.assertNotIn('pid', profile)
         with connect() as conn:
             self.assertEqual(conn.execute('SELECT count(*) AS n FROM aa.question_attempts WHERE run_id=%s', (run['id'],)).fetchone()['n'], 11)
@@ -208,12 +210,12 @@ class GameplayTests(unittest.TestCase):
 
     def test_guest_rooms_match_the_database(self):
         # Guest mode plays from copies of the rooms (and the draw rule), so they must not drift
-        # from the migrations.
-        for level in (1, 2, 3):
+        # from the migrations. Each copy also carries its room's reference answer.
+        for level in (1, 2, 3, 4):
             guest = json.loads(Path(__file__).parents[1].joinpath(f'levels/level_{level}/guest_rooms.json').read_text())
             rooms = guest['rooms'] if isinstance(guest, dict) else guest
             with connect() as conn:
-                rows = conn.execute("""SELECT ordinal,pool,prompt,code_snippet,hint,explanation,payload FROM aa.questions
+                rows = conn.execute("""SELECT ordinal,pool,prompt,code_snippet,hint,explanation,payload,answer FROM aa.questions
                     WHERE level_id=%s AND is_active ORDER BY ordinal""", (level,)).fetchall()
                 rule = conn.execute('SELECT draw FROM aa.levels WHERE id=%s', (level,)).fetchone()['draw']
             with self.subTest(level=level):
@@ -331,6 +333,108 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual([badge['name'] for badge in finished.json()['badges']], ['Stack Master'])
         levels = {level['id']: level for level in self.client.get('/api/levels').json()}
         self.assertEqual((levels[3]['name'], levels[3]['completed']), ('Call Stack Tower', True))
+
+    def test_timing_lab_plays_its_rooms_and_awards_its_badge(self):
+        run = self.post('/runs', {"level_id": 4, "telemetry_version": 1}).json()
+        rooms = run['questions']
+        with connect() as conn:
+            bank = {str(row['id']): row['ordinal'] for row in conn.execute(
+                'SELECT id,ordinal FROM aa.questions WHERE level_id=4 AND is_active').fetchall()}
+        # The ten rooms, in order (no draw): five waveform rooms, then five on pipelining.
+        self.assertEqual([bank[room['id']] for room in rooms], list(range(1, 11)))
+        self.assertEqual([room['payload']['kind'] for room in rooms], ['wave'] * 5 + ['table'] * 5)
+        # A waveform drawn a tick late is a miss and a strike; one of the wrong length is malformed.
+        right = self.solution(run['id'], rooms[0])
+        late = {'waves': {name: [wave[0]] + wave[:-1] for name, wave in right['waves'].items()}}
+        result = self.answer(run['id'], rooms[0], late).json()
+        self.assertEqual((result['is_correct'], result['strikes']), (False, 1))
+        self.assertEqual(self.answer(run['id'], rooms[0], {'waves': {'D': [0], 'E': [0], 'Y': [0]}}).status_code, 422)
+        self.assertEqual(self.answer(run['id'], rooms[0], right).json()['stars'], 2)  # A star lost to the miss.
+        for room in rooms[1:]:
+            result = self.answer(run['id'], room, self.solution(run['id'], room))
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual((result.json()['is_correct'], result.json()['stars']), (True, 3), room['prompt'])
+        finished = self.post(f"/runs/{run['id']}/finish")
+        self.assertEqual(finished.status_code, 200, finished.text)
+        self.assertEqual([badge['name'] for badge in finished.json()['badges']], ['Timing Master'])
+        self.assertEqual((finished.json()['stars'], finished.json()['max_stars']), (29, 30))
+        levels = {level['id']: level for level in self.client.get('/api/levels').json()}
+        self.assertEqual((levels[4]['name'], levels[4]['completed']), ('Timing Lab', True))
+
+    def over_par(self, gate):
+        """A winning set of presses longer than the gate's par, or None if it has none."""
+        payload = gate['payload']
+        return next((list(moves) for n in range(payload['par'] + 1, payload['max_moves'] + 1)
+                     for moves in product(range(len(payload['buttons'])), repeat=n)
+                     if grade_puzzle(payload, {'moves': list(moves)})), None)
+
+    def test_going_back_reopens_a_gate_and_keeps_its_best_stars(self):
+        run = self.post('/runs', {"level_id": 1, "telemetry_version": 1}).json()
+        gates = run['questions']
+        reopen = lambda gate: self.post(f"/runs/{run['id']}/reopen", {"question_id": gate['id']})
+        # A gate that isn't open has nothing to go back to: asking changes nothing.
+        self.assertEqual(reopen(gates[0]).json()['solved_question_ids'], [])
+        at = next(k for k, gate in enumerate(gates) if self.over_par(gates[k]))
+        for gate in gates[:at]:
+            self.assertTrue(self.answer(run['id'], gate, self.solution(run['id'], gate)).json()['is_correct'])
+        slow = self.answer(run['id'], gates[at], {'moves': self.over_par(gates[at])}).json()
+        self.assertEqual((slow['is_correct'], slow['stars']), (True, 2))
+        view = reopen(gates[at])
+        self.assertEqual(view.status_code, 200, view.text)
+        self.assertEqual(view.json()['solved_question_ids'], [gate['id'] for gate in gates[:at]])
+        self.assertEqual(view.json()['question_stats'][gates[at]['id']]['stars'], 2)
+        self.assertEqual(reopen(gates[at]).json()['solved_question_ids'], view.json()['solved_question_ids'])
+        # The gate is closed until it is opened again; opening it at par raises its stars.
+        for gate in gates[at + 1:]:
+            self.assertTrue(self.answer(run['id'], gate, self.solution(run['id'], gate)).json()['is_correct'])
+        self.assertEqual(self.post(f"/runs/{run['id']}/finish").status_code, 409)
+        again = self.answer(run['id'], gates[at], self.solution(run['id'], gates[at])).json()
+        self.assertEqual((again['is_correct'], again['stars'], again['strikes']), (True, 3, 0))
+        # Going back and doing worse never lowers a gate's stars, and it earns its point only once.
+        self.assertEqual(reopen(gates[at]).status_code, 200)
+        self.assertEqual(self.answer(run['id'], gates[at], {'moves': self.over_par(gates[at])}).json()['stars'], 3)
+        finished = self.post(f"/runs/{run['id']}/finish").json()
+        self.assertEqual((finished['stars'], finished['max_stars']), (30, 30))
+        with connect() as conn:
+            self.assertEqual(conn.execute('SELECT score FROM aa.level_runs WHERE id=%s', (run['id'],)).fetchone()['score'], 10)
+        # Nothing reopens once the run is finished, and another player's run can't be touched.
+        self.assertEqual(reopen(gates[at]).status_code, 409)
+        self.sign_in(self.other)
+        self.assertEqual(reopen(gates[at]).status_code, 404)
+
+    def test_showing_the_answer_gives_it_and_caps_the_gate_at_one_star(self):
+        run = self.post('/runs', {"level_id": 2, "telemetry_version": 1}).json()
+        first, second = run['questions'][:2]
+        # Answers stay out of everything a run is sent up front.
+        self.assertFalse(any('answer' in question or 'answer' in question['payload'] for question in run['questions']))
+        event = lambda question, **more: self.post(f"/runs/{run['id']}/events", {
+            "question_id": question['id'], "request_id": str(uuid4()), "kind": "answer", **more})
+        self.assertEqual(event(first, moment=0, choice=0).status_code, 422)
+        request = {"question_id": first['id'], "request_id": str(uuid4()), "kind": "answer"}
+        shown = [self.post(f"/runs/{run['id']}/events", request) for _ in range(2)]  # A retry gives it again.
+        self.assertEqual([result.status_code for result in shown], [200, 200])
+        self.assertEqual(shown[0].json(), shown[1].json())
+        self.assertEqual(shown[0].json()['answer'], REFERENCE[2][1])
+        self.assertTrue(shown[0].json()['question_stats']['answer_shown'])
+        self.assertTrue(self.start(2)['question_stats'][first['id']]['answer_shown'])
+        solved = self.answer(run['id'], first, shown[0].json()['answer']).json()
+        self.assertEqual((solved['is_correct'], solved['stars']), (True, 1))
+        # A gate opened without it keeps its stars; an open gate has no answer left to show.
+        self.assertEqual(self.answer(run['id'], second, self.solution(run['id'], second)).json()['stars'], 3)
+        self.assertEqual(event(first).status_code, 409)
+        with connect() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) AS n FROM aa.question_events WHERE run_id=%s AND kind='answer'",
+                                          (run['id'],)).fetchone()['n'], 1)
+        self.sign_in(self.other)
+        self.assertEqual(event(second).status_code, 404)
+
+    def test_every_active_question_has_a_reference_answer_that_opens_it(self):
+        with connect() as conn:
+            rows = conn.execute("SELECT level_id,ordinal,payload,answer FROM aa.questions WHERE is_active AND type='puzzle'").fetchall()
+        self.assertEqual(len(rows), 28 + 20 + 8 + 10)
+        for row in rows:
+            with self.subTest(level=row['level_id'], room=row['ordinal']):
+                self.assertTrue(grade_puzzle(row['payload'], row['answer']))
 
     def test_level_one_reads_abi_register_names(self):
         run = self.start()

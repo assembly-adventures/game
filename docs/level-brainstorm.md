@@ -2,8 +2,12 @@
 
 Ideas for turning each level into a puzzle that follows the COMP 311 Fall 2026
 calendar ([`311fa26 Schedule - Full Calendar.pdf`](311fa26%20Schedule%20-%20Full%20Calendar.pdf)).
-Levels 1 to 3 are implemented as puzzle gates (see [schema.md](schema.md#aaquestions));
-everything else here is a proposal.
+Levels 1 to 3 and a timing and pipelining level (built as Level 4, Timing Lab) are
+implemented as puzzle gates (see [schema.md](schema.md#aaquestions)); everything
+else here is a proposal. The unit and level numbers below follow the course
+calendar; the game numbers its levels in the order they were built, so the
+timing and pipelining level sits in the game's fourth slot. To build one of these, follow
+[adding-content.md](adding-content.md).
 
 ## Design principles
 
@@ -24,7 +28,7 @@ everything else here is a proposal.
 ### Level 1 — Wake the Registers (weeks 1–2)
 Registers, arithmetic, binary/hex, signed/unsigned, overflow, logical operations, shifts.
 
-**Implemented** as a bank of twenty-two gates in the style of *Calculator: The
+**Implemented** as a bank of twenty-eight gates in the style of *Calculator: The
 Game*, ten per run: the four tutorial gates, then one gate drawn from each topic
 pool (hex, masks, flips, signed, overflow, shifts), so every run covers every
 topic but runs differ. Each gate shows a target pattern of bulbs above an 8-bit
@@ -62,11 +66,17 @@ idea it needs.
 | 20 | overflow | Turn −100 into 56 by subtracting | signed overflow going down |
 | 21 | shifts | Shrink −100 to −25 | `srai` halves a negative and keeps its sign |
 | 22 | shifts | Turn 48 into −64 | shifting left can overflow into the sign bit |
+| 23 | hex | Turn 0x40 into 0x2F | a hex digit borrows from the one to its left |
+| 24 | masks | Turn 0xB7 into 0x0D | shift, then mask: reading a field out of a word |
+| 25 | flips | Turn 0x69 into 0x96 | two `xori` masks together flip everything; twice undoes |
+| 26 | signed | Turn 100 into −102 | flipping every bit of x gives −x − 1 |
+| 27 | overflow | Turn 5 into 250 by subtracting | unsigned subtraction wraps below 0 |
+| 28 | shifts | Turn 3 into 96 | shifts add up, and each place doubles |
 
 ### Level 2 — Memory Maze (weeks 3–4)
 Memory, addresses, `lw`/`sw`, arrays, comparisons, branches, loops, translation from C.
 
-**Implemented** as a bank of sixteen rooms, lined up with Lecture 4 (loads,
+**Implemented** as a bank of twenty rooms, lined up with Lecture 4 (loads,
 stores, accessing memory). Each run plays ten: the four tutorial rooms, then one
 memory, one branches, and one loops room drawn at random, both procedure rooms
 (stack frames give students the most trouble), and the race.
@@ -102,7 +112,7 @@ Registers go by their ABI names, with each x-name in small print.
 | --- | --- | --- | --- | --- |
 | 1 | tutorial | maze | Walk to the exit | an int is 4 bytes: each step is +4 |
 | 2 | tutorial | maze | Load `arr[3]` of `5 90 100 40 11` | `lw`, R[rd] = M[R[rs1] + offset] (36–41) |
-| 3 | tutorial | maze | `arr[3]` is a door that needs 8 | `sw`, M[R[rs1] + offset] = R[rs2] (42–43) |
+| 3 | tutorial | maze | `arr[2]` is a door that needs 8 | `sw`, M[R[rs1] + offset] = R[rs2] (42–43) |
 | 4 | tutorial | maze | Cross a long corridor | `loop:` + `bne a0, a1, loop` |
 | 5 | memory | maze | Go down two rows | memory is one line: down is +16 in a 4-word room |
 | 6 | memory | maze | A door holds 7 and needs 12 | load/store architecture: `lw`, `addi`, `sw` (21) |
@@ -110,12 +120,20 @@ Registers go by their ABI names, with each x-name in small print.
 | 8 | memory | code | `sum = arr[i] + arr[i+1]` | `slli` by 2 for an int's offset, then base + offset |
 | 9 | branches | code | `if (x < 5) … else …` | `slti`, branch to else, jump over it |
 | 10 | branches | maze | Walk to the first 0 | a sentinel loop: `bne t1, x0, loop` |
-| 11 | loops | maze | Copy `a[]` into the vault below | a loop body relative to `a0`; `blt` vs `bge` |
+| 11 | loops | maze | Open a row of doors that each need 9 | a store to the word ahead (`sw t2, 4(a0)`) inside a loop |
 | 12 | loops | maze | Sum `values[i]` while `i < 6` | the lecture's loop, with `blt t0, t6` (45) |
 | 13 | loops | code | `for (i = 3; i >= 0; i--) arr[i] += 2` | a countdown loop: `bge` vs `bne` |
 | 14 | procedures | code | `a0 = func(6) + 1` | `jal` saves PC + 4 in `ra`; `jalr` returns |
-| 15 | procedures | code | `result = func(6)` from a stack frame | save `ra` before `jal`; store before restoring |
-| 16 | finale | maze | Race the Chip Chomper | a loop costs its body times its passes |
+| 15 | procedures | code | `total = twice(7)` from a stack frame | save `ra` before `jal`; store before restoring |
+| 16 | finale | maze | Race the Chip Chomper: copy `a[]` into the vault | a loop costs its body times its passes |
+| 17 | memory | maze | Load `grid[1][2]` | a 2D array in row-major order: word r × width + c |
+| 18 | branches | code | `if (x < 0) x = -x;` | an if without an else: branch over the body on the opposite condition |
+| 19 | branches | code | `ok = (i >= 0 && i < n);` | one unsigned comparison (`bgeu`) checks both bounds |
+| 20 | loops | code | Find the largest int of `arr` | a branch inside a loop |
+
+Rooms 3, 11, and 15 were replaced (migration `0017`) because each was too much
+like another room in the same run: 3 stored into the word room 2 loads, 11 was
+the finale's copy loop, and 15 called the same `func(6)` as room 14.
 
 Ideas not built yet:
 
@@ -241,18 +259,65 @@ branch, and jump instructions, immediate generation, control, critical path.
 
 ## Unit 3 — Making Computers Fast
 
-### Level 7 — Pipeline Rush (weeks 12–14)
-Performance equation, five-stage pipeline, data hazards, forwarding, stalls,
-load-use hazards, control hazards, flushing.
+### Level 7 — Timing Lab (weeks 12–14)
+Timing analysis (waveform diagrams, propagation delay, flip-flops), pipelining
+a circuit, the five-stage pipeline, data hazards, stalls, forwarding, load-use
+hazards, and CPI.
 
-- **Assembly-line traffic:** instructions drive through IF/ID/EX/MEM/WB lanes.
-  Insert bubbles, draw forwarding wires, or reorder instructions to avoid crashes
-  in the fewest cycles.
-- **Load-use trap:** only reordering removes the stall.
-- **Branch flush gamble:** mispredictions flush in-flight instructions. Pick a
-  strategy that hits a CPI target.
+**Implemented** as the game's Level 4: ten rooms played in order, each one an
+example from the lecture slides or a question from the in-class practice sheets
+(Lectures 18, 20, 22, and 23). The first five are waveform diagrams: a circuit
+beside a timing grid with the inputs drawn, where the player draws each
+remaining signal by clicking its row wherever it changes (each click puts an
+edge there), and the circuit's wires light up to show the moment under the
+mouse. The last five are pipelining: a circuit or a program, a pipeline diagram
+to fill in (a row per instruction, a column per cycle), and no questions to
+answer: the player does the thing instead. Clocks are tuned with − and + and
+tested by racing the signal against the tick (every race is a try: too fast
+breaks the circuit, too slow could tick faster, and a wrong race says only
+which); diagrams flag two rows in one stage; and stalls are planned by reading
+the registers, then Run draws an arrow for each value read, green or red, and a
+wrong run says what went wrong first. The last gate is the same with
+forwarding, on a longer program where two lines wait for a load and one
+reads a load two lines up and doesn't. Forwarding mux settings (ForwardA and
+ForwardB) were tried as something to answer on that gate, first as a table and
+then as arrows the player drew, and dropped both times as too confusing. They
+are taught after the fact instead: once the gate opens, each arrow shows its
+setting and a note explains 10, 01, and 00. Feedback is deliberately held back until a try is spent, so
+the answers are not given away. Numbers the practice sheets ask for (latency, speedup,
+CPI) are in the explanations. Rooms are kept short on purpose (a handful of
+clicks each) and need no calculator: students have none, so questions ask for
+cycles, sums, and easy products, and leave ratios like speedup to the
+explanation, and Check plays the answer through before the gate opens or the
+Chip Chomper strikes. A wrong check marks the wrong rows and blanks in red, and
+on a waveform says the moment it first goes wrong. Circuits use the lectures'
+symbols (Logisim's), and a guide on every gate explains the parts and terms it
+uses, with each gate's truth table.
+
+| Room | Kind | The task | What it shows |
+| --- | --- | --- | --- |
+| 1 | wave | AND, NOT, and OR with no delay: draw D, E, Y | reading a circuit into a waveform |
+| 2 | wave | NOT (10 ps) into OR (20 ps): draw C, Y | propagation delay shifts each edge |
+| 3 | wave | NOT (10 ps) and two ORs (30 ps): draw D, E, Y | delays add up along a path |
+| 4 | wave | a positive-edge-triggered D flip-flop: draw Q | Q changes only at rising edges |
+| 5 | wave | the flip-flop with a 1 ns clk-to-q delay | Q changes a delay after the edge |
+| 6 | table | tune the adder's clock with and without pipeline registers, racing the signal against the tick | the clock period is clk-to-q plus the longest path |
+| 7 | table | place three sums on the 2-stage adder's diagram | stages overlap; one stage holds one sum |
+| 8 | table | place five instructions on IF/ID/EX/MEM/WB, then tune both clocks | single-cycle fits the slowest instruction, the pipeline its slowest stage |
+| 9 | table | stall a program so no line reads too early; Run shows the arrows | a data hazard waits for W |
+| 10 | table | stall a seven-line program with forwarding (two stalls); the mux settings show once it opens | only a load read on the very next line stalls |
+
+Ideas not built yet:
+
+- **A bank with a draw:** more circuits and programs per idea, drawn like
+  Levels 1 and 2, so replays differ. `server/timing.py` simulates any circuit of
+  the supported gates, so a new waveform room is only a new payload.
+- **Setup and hold:** mark the window around a clock edge where D must not
+  change, and find the fastest clock a path allows.
+- **Control hazards:** branches in the pipeline diagram, with flushed
+  instructions and the cost of deciding in EX against ID.
 - **Performance tuner:** trade clock rate, CPI, and instruction count to beat a
-  runtime target.
+  runtime target (the full performance equation).
 
 ### Level 8 — Memory Wall (weeks 15–16)
 Locality, memory hierarchy, cache address breakdown, hits and misses, AMAT, and
@@ -292,6 +357,8 @@ the player repairs each layer before time runs out.
 
 ## Implementation notes
 
+- Level 4's circuit simulator and answer keys are in `server/timing.py`, mirrored
+  in `levels/level_4/wave_room.gd` and `table_room.gd`.
 - Levels 1–4, 7, and the boss can share one RISC-V interpreter. Level 1 has
   added it as `server/puzzles.py`, mirrored in `levels/level_1/puzzle_room.gd`
   so the game can animate each press. The instruction-key format fits Levels 2–4
@@ -303,6 +370,6 @@ the player repairs each layer before time runs out.
   content stays authored in the database. A new room gives the runner its lines
   through `guide()`, so the instruction guide can explain every instruction on
   the gate; a new instruction needs an entry in `ui/instruction_guide.gd`.
-- The game currently has six level slots plus a challenge. This plan needs eight
-  plus the boss, which means adding `level_7`/`level_8` buttons in
-  `control_center.tscn` and renaming the existing scenes.
+- The game currently has six level slots plus a challenge, and four are built.
+  This plan needs eight plus the boss, which means adding chips to `LEVELS` in
+  `control_center.gd` and rows to `aa.levels` and `aa.badges`.

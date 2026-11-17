@@ -2,10 +2,14 @@ extends Control
 ## Runs one level of puzzle gates: loads or resumes the run, shows each unsolved gate, submits
 ## attempts, plays the Chip Chomper's strikes and setbacks, and awards the badge. Each level's
 ## scene sets which level it is; the gate's payload kind picks the puzzle that plays inside it.
+## Two things work the same on every gate: Show answer (top bar) fetches the gate's reference
+## answer, which caps the gate at one star, and a click on an open gate in the corridor goes back
+## to it, closing it until it is opened again.
 
 const PuzzleRoom := preload("res://levels/level_1/puzzle_room.gd")
 const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_room.gd"),
-	"code": preload("res://levels/level_2/code_room.gd"), "walk": preload("res://levels/level_3/walk_room.gd")}
+	"code": preload("res://levels/level_2/code_room.gd"), "walk": preload("res://levels/level_3/walk_room.gd"),
+	"wave": preload("res://levels/level_4/wave_room.gd"), "table": preload("res://levels/level_4/table_room.gd")}
 const Corridor := preload("res://ui/corridor.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
 const InstructionGuide := preload("res://ui/instruction_guide.gd")
@@ -44,6 +48,13 @@ var learning_failed := false
 var guide_button: Button
 var guide  # The instruction guide, drawn over everything when open.
 var layout_root: MarginContainer
+var answer_button: Button
+var answer_box: PanelContainer
+var answer_label: Label
+var answers: Dictionary = {}  # Gate ID: its reference answer's lines, once the player has asked for them.
+var answer_asked := false  # Show answer was pressed once; the next press shows it.
+var back_asked := -1  # The open gate a click asked to go back to; a second click on it goes.
+var finished := false
 
 func _ready() -> void:
 	_build_ui()
@@ -86,6 +97,12 @@ func _build_ui() -> void:
 	guide_button.pressed.connect(_toggle_guide)
 	guide_button.hide()
 	bar.add_child(guide_button)
+	answer_button = Button.new()
+	answer_button.tooltip_text = "See one way to open this gate. A gate opened after seeing its answer earns 1 star."
+	answer_button.focus_mode = Control.FOCUS_NONE
+	answer_button.pressed.connect(_toggle_answer)
+	answer_button.hide()
+	bar.add_child(answer_button)
 	var saving := Label.new()
 	saving.text = "Guest: progress is not saved" if PlayerData.guest else "Progress saves automatically"
 	saving.add_theme_font_size_override("font_size", 13)
@@ -98,6 +115,7 @@ func _build_ui() -> void:
 	corridor.bitten.connect(func():
 		Audio.play("chomp")
 		_shake(12.0))
+	corridor.gate_clicked.connect(_go_back)
 	layout.add_child(corridor)
 	var frame := PanelContainer.new()
 	frame.add_theme_stylebox_override("panel", Style.panel_style())
@@ -157,6 +175,22 @@ func _build_ui() -> void:
 	options_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	options_box.add_theme_constant_override("separation", 14)
 	content.add_child(options_box)
+	# The gate's answer, once asked for: under the room, so it can be read while playing.
+	answer_box = PanelContainer.new()
+	var answer_style := Style.panel_style()
+	answer_style.bg_color = Color(Style.BG, 0.94)
+	answer_style.border_color = Color(Style.GOLD, 0.7)
+	answer_style.set_corner_radius_all(8)
+	answer_style.set_content_margin_all(8)
+	answer_box.add_theme_stylebox_override("panel", answer_style)
+	answer_box.hide()
+	layout.add_child(answer_box)
+	answer_label = Label.new()
+	answer_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	answer_label.add_theme_font_override("font", Style.MONO)
+	answer_label.add_theme_font_size_override("font_size", 14)
+	answer_label.add_theme_color_override("font_color", Style.GOLD)
+	answer_box.add_child(answer_label)
 	feedback = Label.new()
 	feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	feedback.add_theme_font_size_override("font_size", 18)
@@ -172,7 +206,7 @@ func _build_ui() -> void:
 	retry.pressed.connect(_retry)
 	layout.add_child(retry)
 	guide = InstructionGuide.new()
-	guide.toggled.connect(func(open: bool): guide_button.text = "Instruction guide ▲" if open else "Instruction guide ▼")
+	guide.toggled.connect(func(open: bool): guide_button.text = _guide_title() + (" ▲" if open else " ▼"))
 	add_child(guide)
 
 ## Number keys press instruction keys; Backspace undoes, R restarts, Enter continues, and I opens
@@ -205,7 +239,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 
-## Opens the instruction guide for the gate on screen, hanging under its button, or closes it.
+## What the gate's guide is called: the instruction guide, unless the room names its own.
+func _guide_title() -> String:
+	return str(puzzle.guide_title) if puzzle != null and "guide_title" in puzzle else InstructionGuide.TITLE
+
+## Opens the guide for the gate on screen, hanging under its button, or closes it.
 func _toggle_guide() -> void:
 	if guide.visible:
 		guide.close()
@@ -275,7 +313,89 @@ func _show_next_unsolved() -> void:
 	guide.close()
 	_render_options()
 	guide_button.visible = puzzle != null and puzzle.has_method("guide")
+	guide_button.text = _guide_title() + " ▼"
+	guide_button.tooltip_text = "What each %s on this gate means (I)" % ("part" if puzzle != null and "guide_title" in puzzle else "instruction")
+	back_asked = -1
+	answer_asked = false
+	answer_box.hide()
+	_sync_answer_button()
+	_sync_corridor()
 	started_at = Time.get_ticks_msec()
+
+## Show answer is offered on a puzzle gate until it opens. Its label says what the next press does.
+func _sync_answer_button() -> void:
+	answer_button.visible = puzzle != null and not ready_for_next and not finished
+	answer_button.text = "Hide answer ▲" if answer_box.visible else "Answer ▼" if answers.has(str(question.get("id", ""))) \
+		else "Show it (1 star)" if answer_asked else "Show answer"
+
+## The first press asks, since seeing the answer costs stars; the second fetches it. The server
+## records that it was shown (an "answer" learning event) and scores the gate at one star. After
+## that the button only opens and closes the answer, which stays under the room while it is played.
+func _toggle_answer() -> void:
+	if busy or learning_failed or puzzle == null or ready_for_next:
+		return
+	var id := str(question.id)
+	if answer_box.visible:
+		answer_box.hide()
+	elif answers.has(id):
+		answer_box.show()
+	elif not answer_asked and not bool(run.get("question_stats", {}).get(id, {}).get("answer_shown", false)):
+		answer_asked = true
+		feedback.text = "Show this gate's answer? Opening the gate after seeing it earns 1 star. Press the button again to see it."
+	else:
+		_set_busy(true)
+		var saved_ok := await _flush_learning()
+		var result := {"ok": false, "error": feedback.text}
+		if saved_ok:
+			result = await PlayerData.api_request("/runs/%s/events" % run.id, HTTPClient.METHOD_POST,
+				{"question_id": question.id, "request_id": PlayerData.new_request_id(), "kind": "answer"})
+		_set_busy(false)
+		if not result.ok:
+			feedback.text = str(result.error)
+			return
+		_learning_saved(str(run.id), id, result.data.get("question_stats", {}))
+		var lines: Array = ROOMS[str(question.payload.kind)].answer_lines(question.payload, result.data.answer)
+		answers[id] = lines
+		answer_label.text = "Answer:   " + "      ".join(PackedStringArray(lines))
+		answer_box.show()
+		feedback.text = "Here is one way to open this gate. Follow it, and work out why it works."
+		Audio.play("hint", -4.0)
+	_sync_answer_button()
+
+## Open gates in the corridor can be clicked to go back to them, except while the run is busy.
+func _sync_corridor() -> void:
+	corridor.clickable = not finished and not run.is_empty()
+
+## A click on an open gate in the corridor goes back to it. The first click asks, since the gate
+## closes again until it is reopened; the second click on the same gate goes. The server records
+## it like a setback (without a strike) and keeps the gate's best stars.
+func _go_back(index: int) -> void:
+	if busy or learning_failed or finished or run.is_empty() or not pending_answer.is_empty():
+		return
+	if index >= run.questions.size() or run.questions[index].id not in solved:
+		return
+	if back_asked != index:
+		back_asked = index
+		feedback.text = "Go back to gate %d? It closes until you open it again, and it keeps its best stars. Click it again to go back." % (index + 1)
+		return
+	back_asked = -1
+	_set_busy(true)
+	var result := {"ok": false, "error": feedback.text}
+	if await _flush_learning():
+		result = await PlayerData.api_request("/runs/%s/reopen" % run.id, HTTPClient.METHOD_POST,
+			{"question_id": run.questions[index].id})
+	_set_busy(false)
+	if not result.ok:
+		feedback.text = str(result.error)
+		return
+	run = result.data
+	solved = run.solved_question_ids
+	strikes = run.get("strikes", {}).duplicate()
+	corridor.close_gate(index)
+	Audio.play("undo")
+	question_index = index
+	_show_next_unsolved()
+	feedback.text = "Back at gate %d. Open it again to move on." % (index + 1)
 
 ## A prompt's first line is the gate's goal; any lines after it are detail, shown smaller beneath.
 func _show_prompt(text: String) -> void:
@@ -429,7 +549,14 @@ func _submit() -> void:
 			corridor.open_gate(question_index, stars)
 			Audio.play("open")
 			feedback.text = "%s %s%s" % ["★".repeat(stars), "Perfect!" if stars == 3 else "Gate open!", explanation]
+			# Going back only helps when the star was lost to par (too many moves or instructions):
+			# a mistake, a hint, or a shown answer counts against the gate for the rest of the run.
+			var shown := bool(run.get("question_stats", {}).get(str(question.id), {}).get("answer_shown", false))
+			if stars < 3 and puzzle.fails == 0 and not puzzle.hint_used and not shown:
+				feedback.text += " (Click an open gate above to try it again for more stars.)"
 			submit.text = "Finish level ▶" if last else "Next gate ▶"
+			answer_box.hide()
+			_sync_answer_button()
 		else:
 			feedback.text = ("Correct!" if PlayerData.guest else "Correct — answer saved.") + explanation
 			submit.text = "Finish level" if last else "Next question"
@@ -486,10 +613,14 @@ func _finish() -> void:
 		retry.show()
 		return
 	PlayerData.apply_profile(result.data)
+	finished = true
 	_clear_options()
 	puzzle = null
 	guide.close()
 	guide_button.hide()
+	answer_button.hide()
+	answer_box.hide()
+	_sync_corridor()
 	code_box.hide()
 	corridor.finish()
 	Audio.play("complete")
@@ -588,6 +719,7 @@ func _set_busy(value: bool) -> void:
 	busy = value
 	submit.disabled = value
 	menu_button.disabled = value
+	answer_button.disabled = value
 	for button in choices:
 		if is_instance_valid(button):
 			button.disabled = value

@@ -62,6 +62,10 @@ class AnswerTextTests(unittest.TestCase):
             ("puzzle", {"kind": "maze"}, {"program": ["loop:", "lw t0, 0(a0)"]}, ["loop:", "lw t0, 0(a0)"]),
             ("puzzle", {"kind": "code"}, {"blanks": ["slli t3, t2, 2"]}, ["Blank 1: slli t3, t2, 2"]),
             ("puzzle", self.WALK, {"choices": [1]}, ["Move 1: j triple"]),
+            ("puzzle", {"kind": "wave", "draw": ["C", "Y"], "tick": 10, "unit": "ps"},
+             {"waves": {"C": [1, 1, 0, 0], "Y": [0, 1, 1, 0]}},
+             ["C: starts at 1, falls at 20 ps", "Y: starts at 0, rises at 10 ps, falls at 30 ps"]),
+            ("puzzle", {"kind": "table"}, {"cells": ["650", "??"]}, ["Blank 1: 650", "Blank 2: ??"]),
         ]
         for question_type, payload, response, expected in cases:
             with self.subTest(question_type=question_type, response=response):

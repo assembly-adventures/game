@@ -15,7 +15,8 @@ the game asks the player to reload and sign in again.
 | `POST /api/runs` | `{level_id: 1, telemetry_version: 1}` starts or resumes a run; omitting the telemetry version creates a legacy, unranked run |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
-| `POST /api/runs/{id}/events` | Saves an idempotent hint or walkthrough-choice event; mistakes do not cause strikes |
+| `POST /api/runs/{id}/events` | Saves an idempotent hint, shown-answer, or walkthrough-choice event; mistakes do not cause strikes. An `answer` event returns the gate's reference answer |
+| `POST /api/runs/{id}/reopen` | `{question_id}` goes back to an open gate: it closes until it is opened again. Returns the run as `POST /api/runs` does |
 | `GET /api/leaderboard?level_id=1&week_offset=0` | Best completed run per visible player in an Eastern calendar week, each under its leaderboard `name`, never an Onyen; offsets from -104 through 0 |
 | `POST /api/preferences` | `{leaderboard_visible: false}` hides the signed-in player's public current/historical entries |
 | `POST /api/nickname` | `{nickname: "Bit Wizard"}` sets the signed-in player's nickname, and `""` clears it; returns `nickname` and `leaderboard_name`. A taken nickname returns 409 and an invalid one 422 (rules in [classroom features](classroom-features.md#nicknames)) |
@@ -35,7 +36,16 @@ An event has `question_id`, `request_id`, and `kind`. Hint events use
 question. The server validates and determines correctness. Retry the same event
 with the same request ID; changing its payload returns 409. Events on another
 player's run return 404. New events on finished runs or solved gates return 409.
-Question statistics contain `mistakes`, `hint_used`, and `stars` (null until solved).
+
+`{"kind":"answer"}` is **Show answer**. Its response adds `answer`: one winning
+response for the gate, in the form the game would submit it (`{"moves": [...]}`,
+`{"program": [...]}`, and so on). Reference answers are kept in
+`aa.questions.answer` and are never part of a run's questions, so the game holds
+one only after asking. From then on the gate earns one star however it is opened.
+A question without a reference answer returns 422.
+
+Question statistics contain `mistakes`, `hint_used`, `answer_shown`, and `stars`
+(null until solved).
 Runs return these keyed by question ID in `question_stats`, plus
 `leaderboard_eligible`; attempts return the affected question's statistics and
 stars. Finish returns total `stars`, `mistakes`, `max_stars`, and eligibility.
@@ -45,7 +55,7 @@ Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
-A level with a draw rule (Levels 1 to 3) draws its questions from a bank when a run
+A level with a draw rule (Levels 1 and 2) draws its questions from a bank when a run
 starts. The run keeps that draw, in order, until it finishes, so resuming shows
 the same rooms; the next run draws again.
 
@@ -115,6 +125,28 @@ the game records it as a `walk_choice` event instead of an answer: it plays a wr
 students see what breaks without a strike. Anything that isn't one valid option
 per moment returns 422.
 
+Level 4's rooms are graded in `server/timing.py`. A waveform room (`wave`) sends
+what the player drew, one level (0 or 1) per tick for each signal the room asks
+for:
+
+```json
+{"waves": {"C": [1, 1, 1, 1, 0, 0], "Y": [1, 1, 1, 1, 1, 1]}}
+```
+
+The server simulates the room's circuit and the drawing must match it tick for
+tick. A pipelining room (`table`) sends one string per blank: a number for each
+row of its pipeline diagram (the cycle the row starts in, counted from 0, or
+the cycles it is stalled), the period of each clock it tunes, then any blanks
+in reading order:
+
+```json
+{"cells": ["0", "1", "2", "3", "4", "820", "220"]}
+```
+
+A cell is right when it says what the room's key says: spaces, commas, leading
+zeros, trailing decimal zeros, and letter case are ignored. A drawing of the
+wrong shape, or a missing, empty, or overlong cell, returns 422.
+
 Attempts on puzzle gates also return `strikes` and `setback_question_id`. A
 wrong attempt is a strike, counted since the player arrived at the gate (when
 the gate before it was solved, or when a setback sent them back to it). The
@@ -122,6 +154,15 @@ third strike is a setback: the gate before reopens and appears again in the
 next run view, and `setback_question_id` names it. A first gate, with nothing
 before it, restarts instead and names itself. A reopened gate is graded again,
 but it earns its points only once.
+
+`POST /api/runs/{id}/reopen` reopens a gate on the player's own request, which
+the game offers as a click on an open gate. It is recorded like a setback but
+without a strike: the gate leaves `solved_question_ids`, strikes there start
+from zero, and the run cannot finish until it is opened again. A gate opened
+more than once keeps the best stars any of its correct answers earned, so going
+back can raise a score and never lowers it; mistakes and hints still count.
+Asking for a gate that is not open changes nothing and returns the run; a
+finished run returns 409, and another player's run 404.
 
 ```json
 {"is_correct": false, "explanation": "…", "strikes": 3, "setback_question_id": "question-uuid"}

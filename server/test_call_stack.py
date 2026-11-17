@@ -14,10 +14,9 @@ from server.puzzles import MASK, execute, grade_puzzle, parse_line, reg
 BANK = json.loads((Path(__file__).parents[1] / "levels/level_3/guest_rooms.json").read_text())
 ROOMS = BANK["rooms"]
 ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
-# One winning answer per Level 3 walkthrough, by ordinal (db/migrations/0012_level3_walkthroughs.sql):
-# the option picked at each moment.
-SOLUTIONS = {1: {"choices": [0]}, 2: {"choices": [0]}, 3: {"choices": [1]}, 4: {"choices": [0]},
-             5: {"choices": [0]}, 6: {"choices": [0]}, 7: {"choices": [0]}, 8: {"choices": [0]}}
+# One winning answer per Level 3 walkthrough, by ordinal: the option picked at each moment. Each
+# room's reference answer is kept with it in guest_rooms.json (and in aa.questions.answer).
+SOLUTIONS = {room["ordinal"]: room["answer"] for room in ROOMS}
 
 
 def good_choices(payload):
