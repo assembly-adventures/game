@@ -97,7 +97,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	run_button.pressed.connect(run_tests)
 	keys.add_child(run_button)
 	clear_button = _tool("Clear", restart, "R")
-	hint_button = _tool("Hint", show_hint, "")
+	hint_button = _tool("Hint (−1★)", show_hint, "")
 	for tool in [clear_button, hint_button]:
 		keys.add_child(tool)
 	_show_start(0, false)
@@ -195,7 +195,7 @@ func failed() -> void:
 	locked = false
 	_sync()
 	if fails >= 2 and not hint_used and not hint.is_empty():
-		hint_button.text = "Need a hint?"
+		hint_button.text = "Need a hint? (−1★)"
 		hint_button.modulate = Style.GOLD
 
 ## The attempt never reached the grader: back to how things were before the run.
@@ -690,6 +690,14 @@ static func meets(test: Dictionary, result: Dictionary) -> bool:
 		if not result.memory.has(address) or int(result.memory[address]) != int(memory[where]) & MASK:
 			return false
 	return not expect.get("returned", false) or int(result.pc) == EXIT
+
+## A reference answer as the line for each blank, for the level's Show answer.
+static func answer_lines(_room: Dictionary, response: Dictionary) -> Array:
+	var lines: Array = []
+	var chosen: Array = response.get("blanks", [])
+	for k in range(chosen.size()):
+		lines.append("blank %d: %s" % [k + 1, chosen[k]])
+	return lines
 
 ## Mirrors grade_code in server/puzzles.py for guest mode, where the game grades itself.
 static func grade(room: Dictionary, response: Dictionary) -> bool:

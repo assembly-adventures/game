@@ -5,19 +5,25 @@ const Style := preload("res://ui/style.gd")
 
 var symbol := "settings"
 
-func _init(kind: String = "settings") -> void:
+func _init(kind: String = "settings", caption: String = "") -> void:
 	symbol = kind
 	name = "LeaderboardButton" if kind == "leaderboard" else "SettingsButton"
 	tooltip_text = "Weekly leaderboard" if kind == "leaderboard" else "Settings (F10)"
 	accessibility_name = "Leaderboard" if kind == "leaderboard" else "Settings"
 	custom_minimum_size = Vector2(52, 48)
+	if not caption.is_empty():
+		# A word beside the symbol, for the screens with room for one.
+		text = caption
+		alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		custom_minimum_size = Vector2(66 + 10 * caption.length(), 48)
+		add_theme_font_size_override("font_size", 16)
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	focus_mode = Control.FOCUS_ALL
 	mouse_entered.connect(queue_redraw)
 	mouse_exited.connect(queue_redraw)
 
 func _draw() -> void:
-	var center := size / 2.0
+	var center := size / 2.0 if text.is_empty() else Vector2(28.0, size.y / 2.0)
 	var color := Style.GOLD if symbol == "leaderboard" else Style.CYAN
 	if disabled:
 		color = Style.DIM

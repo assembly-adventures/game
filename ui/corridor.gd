@@ -17,6 +17,7 @@ const DIM := Style.DIM
 const TEXT := Style.TEXT
 
 signal bitten  ## The moment the Chomper's jaws close on the robot.
+signal gate_clicked(index: int)  ## A click on an open gate: the player wants to go back to it.
 
 var total := 0
 var opened: Array = []
@@ -39,10 +40,13 @@ var last_pos := 0.0
 var skids := 0
 var robot_sprite
 var chomper_sprite
+var clickable := false  # Whether open gates take clicks (the level runner turns this on during a run).
+var hovered := -1  # The open gate under the mouse.
 
 func _init() -> void:
 	custom_minimum_size = Vector2(0, 120)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mouse_filter = Control.MOUSE_FILTER_PASS
+	mouse_exited.connect(func(): hovered = -1)
 	# The robot is added last so it stays in front: the Chomper clamps onto its back and drags
 	# it, rather than swallowing it.
 	chomper_sprite = Characters.Chomper.new()
@@ -89,6 +93,31 @@ func open_gate(i: int, star_count: int) -> void:
 
 func set_strikes(count: int) -> void:
 	strikes = count
+
+## Closes a gate the player went back to. Its stars stay: a gate keeps its best.
+func close_gate(i: int) -> void:
+	create_tween().tween_method(func(value: float): opened[i] = value, 1.0, 0.0, 0.3)
+
+## The open gate at a point, or -1.
+func _gate_at(at: Vector2) -> int:
+	for i in range(total):
+		if opened[i] >= 1.0 and Rect2(gate_x(i) - 24, size.y - 104, 48, 100).has_point(at):
+			return i
+	return -1
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		hovered = _gate_at(event.position) if clickable else -1
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if hovered >= 0 else Control.CURSOR_ARROW
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and clickable:
+		var gate := _gate_at(event.position)
+		if gate >= 0:
+			gate_clicked.emit(gate)
+			accept_event()
+
+func _get_tooltip(at: Vector2) -> String:
+	var gate := _gate_at(at) if clickable else -1
+	return "" if gate < 0 else "Go back to gate %d and open it again" % (gate + 1)
 
 func chomp(count: int) -> void:
 	strikes = count
@@ -212,6 +241,8 @@ func _gate(font: Font, i: int, floor_y: float) -> void:
 	var frame := GREEN if open >= 1.0 else GOLD if current else DIM
 	if current:
 		draw_rect(Rect2(x - 24, top - 8, 48, 74), Color(GOLD, 0.08 + 0.06 * sin(t * 4)))
+	elif i == hovered:
+		draw_rect(Rect2(x - 24, top - 8, 48, 74), Color(CYAN, 0.16))
 	draw_rect(Rect2(x - 18, top, 5, 66), frame)
 	draw_rect(Rect2(x + 13, top, 5, 66), frame)
 	draw_rect(Rect2(x - 20, top - 5, 40, 6), frame)

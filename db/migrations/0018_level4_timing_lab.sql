@@ -1,0 +1,203 @@
+-- Level 4, the Timing Lab, takes the "The Stack" placeholder's slot. It follows
+-- the lectures on timing analysis, pipelining, the five-stage CPU, and hazards,
+-- and its ten rooms are the lectures' examples and in-class practice questions,
+-- played in order (no draw): five on waveform diagrams, then five on pipelining.
+--
+--   wave   A circuit and a timing grid. Time is cut into `ticks` of `tick`
+--          `unit`s each (10 ps, 0.5 ns). `signals` gives the inputs' waveforms
+--          as [[tick, value], ...] and `clock` a clock; `circuit.gates` lists
+--          the gates, inputs first; `delays` gives each kind of gate its
+--          propagation delay (a flip-flop's is its clk-to-q delay) in ticks.
+--          The player draws each signal in `draw`, and the answer is
+--          {"waves": {"Y": [1, 1, 0, ...]}}: one level per tick, which must
+--          match the server's simulation.
+--   table  The pipelining rooms: a circuit, and any of a pipeline diagram to
+--          fill in (`chart`), clocks to tune (`clocks`), a table with blanks
+--          (`rows`), and questions (`asks`). A chart with `starts` has the
+--          player place each row's first stage; one with `stalls` has them
+--          hold each instruction in decode until every value it reads is
+--          ready (with `forwarding`, ready means forwarded into execute). A
+--          clock lists the `path` its signal crosses between two ticks; its
+--          key is the path's total, the shortest period that works. The
+--          answer is {"cells": [...]}: a number per chart row (its start cycle
+--          or its stall cycles), each clock's period, then every blank in
+--          reading order. A cell is right when it holds its key.
+--
+-- server/timing.py grades both kinds and server/test_timing.py checks every
+-- room. Written by tools/rooms.py from levels/level_4/guest_rooms.json.
+BEGIN;
+
+-- Recreated with the wave and table kinds; still written with -> rather than ?& (see 0001).
+ALTER TABLE aa.questions DROP CONSTRAINT questions_payload_shape;
+ALTER TABLE aa.questions ADD CONSTRAINT questions_payload_shape CHECK (
+    CASE type
+        WHEN 'multiple_choice' THEN
+                 jsonb_typeof(payload -> 'options') = 'array'
+             AND jsonb_typeof(payload -> 'correct_option_ids') = 'array'
+             AND jsonb_array_length(payload -> 'options') >= 2
+             AND jsonb_array_length(payload -> 'correct_option_ids') >= 1
+        WHEN 'drag_and_drop' THEN
+                 jsonb_typeof(payload -> 'tiles') = 'array'
+             AND jsonb_typeof(payload -> 'correct_order') = 'array'
+             AND payload ->> 'orientation' IN ('horizontal', 'vertical')
+             AND jsonb_array_length(payload -> 'tiles')
+                 = jsonb_array_length(payload -> 'correct_order')
+        WHEN 'matching' THEN
+                 jsonb_typeof(payload -> 'columns') = 'array'
+             AND jsonb_typeof(payload -> 'pairs') = 'array'
+             AND jsonb_array_length(payload -> 'columns') = 2
+             AND jsonb_array_length(payload -> 'pairs') >= 2
+        WHEN 'puzzle' THEN
+            CASE payload ->> 'kind'
+                WHEN 'moves' THEN
+                         jsonb_typeof(payload -> 'goal') = 'object'
+                     AND jsonb_typeof(payload -> 'buttons') = 'array'
+                     AND jsonb_array_length(payload -> 'buttons') >= 1
+                WHEN 'maze' THEN
+                         jsonb_typeof(payload -> 'goal') = 'object'
+                     AND jsonb_typeof(payload -> 'map') = 'array'
+                     AND jsonb_array_length(payload -> 'map') >= 1
+                WHEN 'code' THEN
+                         jsonb_typeof(payload -> 'code') = 'array'
+                     AND jsonb_typeof(payload -> 'tests') = 'array'
+                     AND jsonb_array_length(payload -> 'tests') >= 1
+                WHEN 'walk' THEN
+                         jsonb_typeof(payload -> 'code') = 'array'
+                     AND jsonb_typeof(payload -> 'calls') = 'array'
+                     AND jsonb_array_length(payload -> 'calls') >= 1
+                WHEN 'wave' THEN
+                         jsonb_typeof(payload -> 'circuit') = 'object'
+                     AND jsonb_typeof(payload -> 'signals') = 'object'
+                     AND jsonb_typeof(payload -> 'draw') = 'array'
+                     AND jsonb_array_length(payload -> 'draw') >= 1
+                     AND jsonb_typeof(payload -> 'ticks') = 'number'
+                WHEN 'table' THEN
+                     -- COALESCE: a room with none of these must fail, not pass as NULL.
+                     COALESCE(jsonb_typeof(payload -> 'chart') = 'object'
+                           OR jsonb_typeof(payload -> 'clocks') = 'array'
+                           OR jsonb_typeof(payload -> 'rows') = 'array'
+                           OR jsonb_typeof(payload -> 'asks') = 'array', false)
+                WHEN 'frame' THEN
+                         jsonb_typeof(payload -> 'code') = 'array'
+                     AND jsonb_typeof(payload -> 'blocks') = 'array'
+                     AND jsonb_typeof(payload -> 'calls') = 'array'
+                     AND jsonb_array_length(payload -> 'calls') >= 1
+                WHEN 'elevator' THEN
+                         jsonb_typeof(payload -> 'code') = 'array'
+                     AND jsonb_typeof(payload -> 'blanks') = 'array'
+                     AND jsonb_array_length(payload -> 'blanks') >= 1
+                WHEN 'lawyer' THEN
+                         jsonb_typeof(payload -> 'code') = 'array'
+                     AND jsonb_typeof(payload -> 'clauses') = 'array'
+                     AND jsonb_typeof(payload -> 'verdict') = 'object'
+                ELSE false
+            END
+        ELSE false
+    END
+);
+
+UPDATE aa.levels SET name = 'Timing Lab', scene_path = 'res://levels/level_4/timing_lab.tscn',
+    completion_rule = '{"type":"all_correct"}', is_active = true, draw = NULL
+    WHERE id = 4;
+
+UPDATE aa.badges SET name = 'Timing Master', description = 'Kept time in the Timing Lab.',
+    image_path = 'res://images/timing_lab.svg', is_active = true
+    WHERE id = 4;
+
+-- The placeholder level never had questions, but nothing else may stay active here.
+UPDATE aa.questions SET is_active = false, retired_at = now()
+    WHERE level_id = 4 AND is_active;
+
+INSERT INTO aa.questions (level_id, type, ordinal, pool, prompt, code_snippet, hint, explanation, difficulty, payload, answer) VALUES
+(4, 'puzzle', 1, NULL,
+ 'Draw D, E, and Y as the inputs change.
+No delays yet: each gate''s output follows its inputs at once. Click a gold row at the moment its signal changes: it flips from there on. Click an edge again to take it away.',
+ NULL,
+ 'D is 1 only while A and B are both 1. E is the opposite of C. Y is 1 whenever D or E is 1.',
+ 'The AND gate''s output D is 1 only while both A and B are 1: from 20 to 50 ps, and again from 90 ps. The NOT gate flips C, so E is 1 from 20 to 90 ps. Y is 1 while either is: from 20 ps on, because D rises at the same moment E falls.',
+ 3,
+ '{"kind": "wave", "unit": "ps", "tick": 10, "ticks": 11, "circuit": {"labels": true, "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}, {"name": "C", "at": [0, 2]}], "gates": [{"out": "D", "op": "and", "in": ["A", "B"], "at": [1.2, 0.5]}, {"out": "E", "op": "not", "in": ["C"], "at": [1.2, 2]}, {"out": "Y", "op": "or", "in": ["D", "E"], "at": [2.6, 1.25]}], "outputs": ["Y"]}, "signals": {"A": [[0, 1], [5, 0], [9, 1]], "B": [[0, 0], [2, 1]], "C": [[0, 1], [2, 0], [9, 1]]}, "draw": ["D", "E", "Y"]}',
+ '{"waves": {"D": [0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1], "E": [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0], "Y": [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1]}}'),
+(4, 'puzzle', 2, NULL,
+ 'Draw C and Y, now that gates take time.
+A gate''s output changes one propagation delay after its input: 10 ps for NOT, 20 ps for OR. The circuit starts settled.',
+ NULL,
+ 'C falls 10 ps after A rises. Y follows C 20 ps later, and follows B 20 ps after B changes.',
+ 'Delays add up along a path. A rises at 30 ps, C falls at 40 ps, and Y falls at 60 ps: 30 ps from A to Y, through both gates. B reaches Y through the OR gate alone, so when B rises at 90 ps, Y rises at 110 ps.',
+ 3,
+ '{"kind": "wave", "unit": "ps", "tick": 10, "ticks": 14, "circuit": {"labels": true, "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}], "gates": [{"out": "C", "op": "not", "in": ["A"], "at": [1, 0]}, {"out": "Y", "op": "or", "in": ["C", "B"], "at": [2.2, 0.5]}], "outputs": ["Y"]}, "delays": {"not": 1, "or": 2}, "signals": {"A": [[0, 0], [3, 1]], "B": [[0, 0], [9, 1]]}, "draw": ["C", "Y"]}',
+ '{"waves": {"C": [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Y": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1]}}'),
+(4, 'puzzle', 3, NULL,
+ 'Draw D, E, and Y through three gates.
+NOT takes 10 ps and each OR takes 30 ps. A change at A has to pass all three gates before Y sees it.',
+ NULL,
+ 'Follow each change one gate at a time: A to D (10 ps), D to E (30 ps), E to Y (30 ps). C reaches Y through one OR gate.',
+ 'The path from A to Y is 10 + 30 + 30 = 70 ps, so A rising at 20 ps pulls Y down at 90 ps. C only passes the last OR gate, so C rising at 100 ps brings Y back up at 130 ps. The longest path through a circuit is its critical path: it sets how long you must wait for the output.',
+ 3,
+ '{"kind": "wave", "unit": "ps", "tick": 10, "ticks": 14, "circuit": {"labels": true, "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}, {"name": "C", "at": [0, 2]}], "gates": [{"out": "D", "op": "not", "in": ["A"], "at": [1, 0]}, {"out": "E", "op": "or", "in": ["D", "B"], "at": [2.2, 0.5]}, {"out": "Y", "op": "or", "in": ["E", "C"], "at": [3.4, 1.25]}], "outputs": ["Y"]}, "delays": {"not": 1, "or": 3}, "signals": {"A": [[0, 0], [2, 1]], "B": [[0, 0]], "C": [[0, 0], [10, 1]]}, "draw": ["D", "E", "Y"]}',
+ '{"waves": {"D": [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "E": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], "Y": [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1]}}'),
+(4, 'puzzle', 4, NULL,
+ 'Draw Q for this positive-edge-triggered D flip-flop.
+Q takes the value of D only at a rising edge of the clock (the dashed lines), and holds it until the next one.',
+ NULL,
+ 'Ignore D between edges. At each rising edge (2, 6, 10 ns, and so on), copy what D is at that moment.',
+ 'A flip-flop remembers: Q changes only on a rising edge. D wiggles between the edges at 6 and 14 ns, but at 10 ns it is 0, so Q never sees those pulses. This is how hardware holds a value steady for a whole clock cycle.',
+ 3,
+ '{"kind": "wave", "unit": "ns", "tick": 0.5, "ticks": 56, "circuit": {"labels": true, "inputs": [{"name": "D", "at": [0, 0]}, {"name": "clk", "at": [0, 1]}], "gates": [{"out": "Q", "op": "dff", "in": ["D"], "at": [1.4, 0.5], "clk": "clk"}], "outputs": ["Q"]}, "clock": {"name": "clk", "period": 8, "rise": 4}, "signals": {"D": [[0, 1], [8, 0], [15, 1], [17, 0], [22, 1], [24, 0], [26, 1], [32, 0], [35, 1], [48, 0], [53, 1]]}, "start": {"Q": 0}, "draw": ["Q"]}',
+ '{"waves": {"Q": [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0]}}'),
+(4, 'puzzle', 5, NULL,
+ 'Draw Q again, with a clk-to-q delay of 1 ns.
+A real flip-flop needs a moment after the rising edge before the new value shows on Q.',
+ NULL,
+ 'Find each rising edge, read D there, then draw the change 1 ns after the edge.',
+ 'Q still takes D''s value at each rising edge, but it appears one clk-to-q delay later: the edge at 6 ns shows on Q at 7 ns. Whatever reads Q has that much less of the clock period to work with, which is why clk-to-q is part of every minimum clock period.',
+ 3,
+ '{"kind": "wave", "unit": "ns", "tick": 0.5, "ticks": 56, "circuit": {"labels": true, "inputs": [{"name": "D", "at": [0, 0]}, {"name": "clk", "at": [0, 1]}], "gates": [{"out": "Q", "op": "dff", "in": ["D"], "at": [1.4, 0.5], "clk": "clk"}], "outputs": ["Q"]}, "clock": {"name": "clk", "period": 8, "rise": 4}, "delays": {"dff": 2}, "signals": {"D": [[0, 0], [8, 1], [16, 0], [18, 1], [22, 0], [24, 1], [26, 0], [32, 1], [34, 0], [38, 1], [45, 0]]}, "start": {"Q": 0}, "draw": ["Q"]}',
+ '{"waves": {"Q": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]}}'),
+(4, 'puzzle', 6, NULL,
+ 'Tune each clock as fast as it will go without breaking the adder.
+Every tick, a value leaves one register and has to reach the next before the clock ticks again. The gold pipeline registers cut that trip in two. Work out each trip, set both clocks with − and +, then press Race. Every race is a try.',
+ NULL,
+ 'Add up the trip: one clk-to-q delay to leave the register, then every adder on the longest way to the next register. Without the gold registers that is two adders; with them, one.',
+ 'Without the gold registers a value crosses two adders between registers: 20 + 480 + 480 = 980 ps. The gold pipeline registers cut the longest trip to one adder, 20 + 480 = 500 ps, so the clock can tick almost twice as fast. Each sum now takes two ticks, but a new one can start on every tick.',
+ 3,
+ '{"kind": "table", "circuit": {"labels": false, "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}, {"name": "C", "at": [0, 2]}, {"name": "D", "at": [0, 3]}], "gates": [{"out": "rA", "op": "reg", "in": ["A"], "at": [1, 0]}, {"out": "rB", "op": "reg", "in": ["B"], "at": [1, 1]}, {"out": "rC", "op": "reg", "in": ["C"], "at": [1, 2]}, {"out": "rD", "op": "reg", "in": ["D"], "at": [1, 3]}, {"out": "s1", "op": "add", "in": ["rA", "rB"], "at": [2, 0.5]}, {"out": "s2", "op": "add", "in": ["rC", "rD"], "at": [2, 2.5]}, {"out": "p1", "op": "reg", "in": ["s1"], "at": [3, 0.5], "gold": true}, {"out": "p2", "op": "reg", "in": ["s2"], "at": [3, 2.5], "gold": true}, {"out": "s3", "op": "add", "in": ["p1", "p2"], "at": [4, 1.5]}, {"out": "Y", "op": "reg", "in": ["s3"], "at": [5, 1.5]}], "outputs": ["Y"]}, "facts": ["clk-to-q delay = 20 ps  ·  adder delay = 480 ps"], "clocks": [{"name": "Without the gold registers", "gold": false, "path": [["clk-to-q", 20], ["adder", 480], ["adder", 480]], "choices": [500, 980, 1000, 1460]}, {"name": "With the gold registers", "gold": true, "path": [["clk-to-q", 20], ["adder", 480]], "choices": [480, 500, 980, 1000]}]}',
+ '{"cells": ["980", "500"]}'),
+(4, 'puzzle', 7, NULL,
+ 'Run three sums through the pipelined adder, one right behind the other.
+Each sum spends one tick in stage 1 (the first two adders), then one in stage 2 (the last adder). A stage holds one sum at a time. Click the cycle each sum starts in, as early as it can.',
+ NULL,
+ 'Like laundry: as soon as the first load moves to the dryer, the next goes in the washer. Sum 2 can enter stage 1 the moment sum 1 leaves it.',
+ 'The stages overlap: while sum 1 is in stage 2, sum 2 is already in stage 1. One sum alone still takes two ticks (its latency), but after the first, a sum finishes on every tick, so three take 4 cycles instead of 6. That is throughput: with a 500 ps clock, a result every 500 ps instead of every 980 ps.',
+ 3,
+ '{"kind": "table", "circuit": {"labels": false, "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}, {"name": "C", "at": [0, 2]}, {"name": "D", "at": [0, 3]}], "gates": [{"out": "rA", "op": "reg", "in": ["A"], "at": [1, 0]}, {"out": "rB", "op": "reg", "in": ["B"], "at": [1, 1]}, {"out": "rC", "op": "reg", "in": ["C"], "at": [1, 2]}, {"out": "rD", "op": "reg", "in": ["D"], "at": [1, 3]}, {"out": "s1", "op": "add", "in": ["rA", "rB"], "at": [2, 0.5]}, {"out": "s2", "op": "add", "in": ["rC", "rD"], "at": [2, 2.5]}, {"out": "p1", "op": "reg", "in": ["s1"], "at": [3, 0.5], "gold": true}, {"out": "p2", "op": "reg", "in": ["s2"], "at": [3, 2.5], "gold": true}, {"out": "s3", "op": "add", "in": ["p1", "p2"], "at": [4, 1.5]}, {"out": "Y", "op": "reg", "in": ["s3"], "at": [5, 1.5]}], "outputs": ["Y"]}, "chart": {"rows": ["sum 1", "sum 2", "sum 3"], "stages": ["S1", "S2"], "cycles": 6, "starts": [0, 1, 2]}, "facts": ["S1 = stage 1, before the gold registers", "S2 = stage 2, after them", "Two sums can never be in the same stage in the same cycle."]}',
+ '{"cells": ["0", "1", "2"]}'),
+(4, 'puzzle', 8, NULL,
+ 'Send the lecture''s five instructions down the five-stage pipeline, then tune both clocks.
+Click the cycle where each instruction is fetched (IF). A single-cycle CPU does a whole instruction in one tick; the pipeline does one stage per tick. Every race is a try.',
+ NULL,
+ 'Fetch a new instruction every cycle, starting in cycle 1. For the clocks: the slowest instruction, lw, uses all five stages, and the slowest single stage takes 200 ps. Each trip also starts with the 20 ps clk-to-q delay.',
+ 'Single-cycle, every tick has to be long enough for lw to cross all five stages: 20 + 800 = 820 ps. Pipelined, a tick only covers the slowest stage: 20 + 200 = 220 ps. One instruction alone is slower on the pipeline (5 x 220 = 1100 ps), but five finish in 9 ticks, 9 x 220 = 1980 ps, against 5 x 820 = 4100 ps: about twice as fast.',
+ 3,
+ '{"kind": "table", "circuit": {"labels": false, "inputs": [], "gates": [{"out": "IF", "op": "box", "in": [], "at": [0, 0], "label": "IF\n200 ps"}, {"out": "r0", "op": "reg", "in": ["IF"], "at": [1, 0], "gold": true}, {"out": "ID", "op": "box", "in": ["r0"], "at": [2, 0], "label": "ID\n100 ps"}, {"out": "r1", "op": "reg", "in": ["ID"], "at": [3, 0], "gold": true}, {"out": "EX", "op": "box", "in": ["r1"], "at": [4, 0], "label": "EX\n200 ps"}, {"out": "r2", "op": "reg", "in": ["EX"], "at": [5, 0], "gold": true}, {"out": "MEM", "op": "box", "in": ["r2"], "at": [6, 0], "label": "MEM\n200 ps"}, {"out": "r3", "op": "reg", "in": ["MEM"], "at": [7, 0], "gold": true}, {"out": "WB", "op": "box", "in": ["r3"], "at": [8, 0], "label": "WB\n100 ps"}], "outputs": []}, "chart": {"rows": ["add x8, x6, x7", "lw x9, 100(x0)", "sub x8, x9, x20", "sw x10, 0(x20)", "or x21, x11, x12"], "stages": ["IF", "ID", "EX", "MEM", "WB"], "cycles": 10, "starts": [0, 1, 2, 3, 4]}, "facts": ["clk-to-q delay = 20 ps  ·  lw uses every stage"], "clocks": [{"name": "Single-cycle: a whole instruction per tick", "path": [["clk-to-q", 20], ["IF", 200], ["ID", 100], ["EX", 200], ["MEM", 200], ["WB", 100]], "choices": [620, 800, 820, 1100]}, {"name": "Pipelined: one stage per tick", "path": [["clk-to-q", 20], ["slowest stage", 200]], "choices": [120, 200, 220, 820]}]}',
+ '{"cells": ["0", "1", "2", "3", "4", "820", "220"]}'),
+(4, 'puzzle', 9, NULL,
+ 'Stall this program so no line reads a register before it is written.
+No forwarding here: a value written in W can be read in D in that same cycle, and no earlier. Press + to hold a line in D one more cycle (the lines behind it wait too). Use as few stalls as you can, then Run it.',
+ NULL,
+ 'Look for a line that reads a register the line just above it writes. Hold it in D until its D sits under that line''s W.',
+ 'or writes x4 in W in cycle 6, but and would decode in cycle 4, so it waits in D for two cycles. sub also reads x4, but once and has waited, sub decodes after the write anyway. Two stalls stretch the run from 9 cycles to 11, still far ahead of the single-cycle CPU.',
+ 3,
+ '{"kind": "table", "chart": {"rows": ["add x3, x2, x2", "or x4, x2, x5", "and x9, x4, x10", "sub x11, x4, x14", "add x11, x15, x18"], "stages": ["F", "D", "X", "M", "W"], "cycles": 15, "stalls": [0, 0, 2, 0, 0]}, "facts": ["Run plays the program and draws an arrow for each value a line reads:", "green = written in time  ·  red = read too early", "Every stall costs the whole program a cycle."]}',
+ '{"cells": ["0", "0", "2", "0", "0"]}'),
+(4, 'puzzle', 10, NULL,
+ 'Now with forwarding: stall only where no wire can help.
+A result is handed straight into X from a line ahead, so most values arrive without waiting. But a load''s word isn''t out of memory until the end of M. Press + to hold a line in D one more cycle (the lines behind it wait too). Use as few stalls as you can, then Run it.',
+ NULL,
+ 'Only a line that reads what a load right above it loaded has to wait. A loaded word reaches the line two below it in time.',
+ 'Two lines read what the load right above them loaded, so each waits a cycle in D: add x6 and add x14. and x12 reads x9 from a load two lines up, so it needs no stall. Without forwarding, this program would need 7 stalls.',
+ 3,
+ '{"kind": "table", "chart": {"rows": ["lw x5, 0(x10)", "add x6, x5, x5", "lw x9, 4(x10)", "or x11, x6, x5", "and x12, x9, x11", "lw x13, 8(x10)", "add x14, x13, x12"], "stages": ["F", "D", "X", "M", "W"], "cycles": 15, "stalls": [0, 1, 0, 0, 0, 0, 1], "forwarding": true}, "facts": ["Run plays the program and draws an arrow for each value a line reads:", "green = forwarded in time  ·  red = not ready yet", "Every stall costs the whole program a cycle."], "solved_note": "The forwarding mux picks where X gets each value, and its setting is now on each arrow: 10 = from EX/MEM (the writer is one cycle ahead, in M, like x11 into and), 01 = from MEM/WB (the writer is in W, like every load''s word here), 00 = the register file (written back in time). ForwardA is the mux for a line''s first source register, ForwardB for its second."}',
+ '{"cells": ["0", "1", "0", "0", "0", "0", "1"]}');
+
+COMMIT;

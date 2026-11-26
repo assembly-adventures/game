@@ -5,7 +5,8 @@ of room. Maze rooms (kind "maze") are memory the robot walks through: the player
 RISC-V lines (steps, loads, stores, and a loop: label that branches jump back to), and the
 response is that program as text. Code rooms (kind "code") are short programs with blank lines
 to fill: the response is the line picked for each blank, and the program must pass every one of
-the room's tests. Level 3's walkthroughs (kind "walk") are graded in call_stack.py.
+the room's tests. Level 3's walkthroughs (kind "walk") are graded in call_stack.py, and Level 4's
+waveform and table rooms (kinds "wave" and "table") in timing.py.
 
 Registers go by their ABI names (a0, t1, sp, ra; x0 stays x0, as the course writes it), and the
 x-names are accepted too.
@@ -397,4 +398,7 @@ def grade_puzzle(payload: dict, response: dict) -> bool:
     if kind == "walk":
         from .call_stack import grade_walk  # Imported here: call_stack builds on this module.
         return grade_walk(payload, response)
+    if kind in ("wave", "table"):
+        from .timing import grade_table, grade_wave
+        return grade_wave(payload, response) if kind == "wave" else grade_table(payload, response)
     raise HTTPException(503, "This puzzle type is not supported.")

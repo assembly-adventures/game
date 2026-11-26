@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from . import test_gameplay
+from . import gameplay, test_gameplay
 from .call_stack import moments
 from .database import connect
 from .gameplay import learning_event, register_player
@@ -62,6 +62,10 @@ class AnswerTextTests(unittest.TestCase):
             ("puzzle", {"kind": "maze"}, {"program": ["loop:", "lw t0, 0(a0)"]}, ["loop:", "lw t0, 0(a0)"]),
             ("puzzle", {"kind": "code"}, {"blanks": ["slli t3, t2, 2"]}, ["Blank 1: slli t3, t2, 2"]),
             ("puzzle", self.WALK, {"choices": [1]}, ["Move 1: j triple"]),
+            ("puzzle", {"kind": "wave", "draw": ["C", "Y"], "tick": 10, "unit": "ps"},
+             {"waves": {"C": [1, 1, 0, 0], "Y": [0, 1, 1, 0]}},
+             ["C: starts at 1, falls at 20 ps", "Y: starts at 0, rises at 10 ps, falls at 30 ps"]),
+            ("puzzle", {"kind": "table"}, {"cells": ["650", "??"]}, ["Blank 1: 650", "Blank 2: ??"]),
         ]
         for question_type, payload, response, expected in cases:
             with self.subTest(question_type=question_type, response=response):
@@ -385,6 +389,12 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/leaderboard?level_id=1&week_offset=1").status_code, 422)
 
     def test_analytics_separates_initial_understanding_from_repeated_practice(self):
+        # Every run here plays the same eight rooms (the original version of each gate), so the
+        # same question comes back: the draw would otherwise hand out other versions first.
+        originals = lambda level, questions, *history: [question for question in questions if question["ordinal"] <= 8]
+        pinned = patch.object(gameplay, "draw", originals)
+        pinned.start()
+        self.addCleanup(pinned.stop)
         run = self.start(3)
         question = run["questions"][0]
         self.event(run, question, "walk_choice", moment=0, choice=1)

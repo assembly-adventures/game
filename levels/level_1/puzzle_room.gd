@@ -82,7 +82,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	tools.add_child(tray)
 	undo_button = _tool("Undo", undo, "Backspace")
 	restart_button = _tool("Restart", restart, "R")
-	hint_button = _tool("Hint", show_hint, "")
+	hint_button = _tool("Hint (−1★)", show_hint, "")
 	for tool in [undo_button, restart_button, hint_button]:
 		tools.add_child(tool)
 	column.add_child(tools)
@@ -166,7 +166,7 @@ func failed() -> void:
 		return
 	reset()
 	if fails >= 2 and not hint_used and not hint.is_empty():
-		hint_button.text = "Need a hint?"
+		hint_button.text = "Need a hint? (−1★)"
 		hint_button.modulate = Visuals.GOLD
 
 func reset() -> void:
@@ -350,6 +350,15 @@ static func run_program(program: Array, initial: Dictionary, bits: int = 32) -> 
 		if int(ins.rd) != 0:
 			regs[int(ins.rd)] = execute(str(ins.op), regs[int(ins.rs1)], second, bits)
 	return regs
+
+## A reference answer as the keys to press, in order, for the level's Show answer.
+static func answer_lines(room: Dictionary, response: Dictionary) -> Array:
+	var value_mask := (1 << int(room.get("width", 32))) - 1
+	var lines: Array = []
+	for move in response.get("moves", []):
+		var ins: Dictionary = room.buttons[int(move)]
+		lines.append("press %s  (%s)" % [face_for(ins, value_mask)[0], asm(ins)])
+	return lines
 
 ## Mirrors grade_puzzle in server/puzzles.py for guest mode, where the game grades itself.
 static func grade(room: Dictionary, response: Dictionary) -> bool:

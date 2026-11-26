@@ -2,11 +2,11 @@
 
 The current release serves the Godot game behind CSXL Onyen login,
 using the same upstream `/auth` and `/verify` contract as LearnWithAI.
-PostgreSQL stores the level 1 to 3 questions, attempts, and earned badges. Unfinished runs
-resume after reload or login. Other levels remain inactive. Verified Onyen and PID
+PostgreSQL stores the questions for Levels 1 to 4, attempts, and earned badges. Unfinished runs
+resume after reload or login. Levels 5 and 6 and the challenge remain inactive. Verified Onyen and PID
 are stored for roster use; PID is never sent to the game or placed in its cookie.
 
-For local setup and a code map, start with the [developer guide](../Docs/development.md).
+For local setup and a code map, start with the [developer guide](../docs/development.md).
 Run these commands from the repository root.
 
 ## Browser release
@@ -147,7 +147,7 @@ curl -I https://assembly-adventures-teddyt.apps.cloudapps.unc.edu/index.pck
 ```
 
 Both unauthenticated requests should redirect to `/auth/login`. Follow the
-login flow, verify that the game loads, and play through levels 1 to 3. Automated
+login flow, verify that the game loads, and play through levels 1 to 4. Automated
 tests mock CSXL verification; they do not substitute for this real SSO check.
 
 ## Staff dashboard access
@@ -174,7 +174,7 @@ oc get configmap assembly-adventures-staff -n teddyt -o jsonpath='{.data.AA_STAF
 The Deployment must reference the ConfigMap, which the current template does.
 If `AA_STAFF_ONYENS` is missing from
 `oc get deployment assembly-adventures -n teddyt -o jsonpath='{.spec.template.spec.containers[0].env[*].name}'`,
-run `deploy.sh` first. See [classroom features](../Docs/classroom-features.md#staff-access)
+run `deploy.sh` first. See [classroom features](../docs/classroom-features.md#staff-access)
 for what staff can see.
 
 ### Clearing a nickname
@@ -202,6 +202,11 @@ the deployment script alone creates a new database and does not copy progress. R
 the new site and explicitly deciding to retire it.
 
 ## Database operations
+
+The app container is limited to 128 MiB of memory (see `infra/app-template.yaml`).
+Do not run Python test code, FastAPI's `TestClient`, or large file reads inside the
+live pod with `oc exec`: they share that limit, and doing so has run the pod out of
+memory and taken the site down. Run tests locally or against a separate database.
 
 The database Service is internal (`assembly-adventures-postgres:5432`), with no
 public Route. The existing namespace network policies still apply; same-namespace

@@ -30,8 +30,8 @@ The schema exists to make three things possible:
 
 ## Current implementation
 
-The API and game implement levels 1 to 3, each with 10 puzzle gates a run,
-saved attempts, resume, and badges. Other levels are inactive. CSXL verifies Onyen and
+The API and game implement Levels 1 to 4, each a run of puzzle gates, with
+saved attempts, resume, and badges. Levels 5 and 6 and the challenge are inactive. CSXL verifies Onyen and
 PID at login; no proxy identity headers are trusted. PID stays server-side.
 See [gameplay-api.md](gameplay-api.md) for the implemented request contract.
 
@@ -122,7 +122,7 @@ the underlying history. See [classroom features](classroom-features.md).
 | `draw` | `jsonb`, optional — how a run picks its questions from the level's pools |
 | `is_active` | `false` for levels that are still stubs |
 
-`scene_path` is stored as metadata. The current client routes Levels 1 to 3
+`scene_path` is stored as metadata. The current client routes Levels 1 to 4
 explicitly in `control_center.gd`; it does not dynamically load scenes from this
 column.
 
@@ -133,8 +133,14 @@ levels and questions; `0007` activates Level 2.
 
 Without a `draw` rule, a run plays every active question in ordinal order. A
 rule lists pools (`questions.pool`) in order. Each pool gives all its active
-questions, or `take` of them chosen at random, kept in ordinal order. Level 2's
-rule plays 10 of its 16 rooms: the four tutorial rooms, one memory, one
+questions, or `take` of them, kept in ordinal order. A pool with `take` gives the
+questions the player has played least since they last signed in
+(`aa.players.signed_in_at`; runs that ended before it don't count), so none comes
+back until the player has played the whole pool. Ties avoid the questions of the
+player's latest run of the level and are then broken at random. Signing in again
+starts the count over (`server/gameplay.py`, `draw` and `played_this_session`;
+guest mode does the same in `player_data.gd`, counting since the page loaded).
+Level 2's rule plays 10 of its 20 rooms: the four tutorial rooms, one memory, one
 branches, and one loops room, both procedure rooms, and the race:
 
 ```json
@@ -142,7 +148,11 @@ branches, and one loops room, both procedure rooms, and the race:
  {"pool": "loops", "take": 1}, {"pool": "procedures"}, {"pool": "finale"}]
 ```
 
-Level 3 has no draw rule: its eight walkthroughs play in order. Level 1's rule
+Levels 3 and 4 draw one version of each gate per run, in order: each gate is a
+pool of three rooms (Level 3: `call`, `way-back`, `keep-value`,
+`saved-registers`, `recursion`, `base-case`, `two-calls`, `race`; Level 4:
+`logic`, `delay`, `path`, `flip-flop`, `clk-to-q`, `clock`, `overlap`,
+`five-stage`, `stalls`, `forwarding`), each with `"take": 1`. Level 1's rule
 plays 10 of its 22 gates: the four tutorial gates, then one from each topic pool
 (`hex`, `masks`, `flips`, `signed`, `overflow`, `shifts`).
 
@@ -165,7 +175,11 @@ One table for all four question types, with the type-specific parts in a
 `payload jsonb` column. Shared columns cover `prompt`, `code_snippet`, `hint`,
 `explanation`, `points`, `difficulty`, and `ordinal`. `pool` (added in `0007`)
 names the group a level's draw rule picks from; it is null for levels without
-one.
+one. `answer` (added in `0015`) is the question's reference answer: one winning
+response in the form the game submits it. It is what **Show answer** returns,
+and it is read straight from this table when a player asks, never copied into a
+run's snapshot. Every active puzzle has one; the tests check that each opens its
+gate.
 
 `code_snippet` exists because the source bank jams multi-line assembly into the
 prompt with `\n`. Splitting it lets the UI monospace the code and leave the
@@ -323,6 +337,97 @@ finale, `chomper` eats a stack word every `every` instructions from instruction
 works still finishes first, and an option marked `loose` (good, but bigger than
 it needs to be) costs a star.
 
+Level 4's rooms are graded by `server/timing.py`. Waveform rooms
+(`kind: "wave"`) show a circuit and a timing grid.
+
+```jsonc
+// puzzle, Level 4 — draw the waveforms of C and Y
+{"kind": "wave", "unit": "ps", "tick": 10, "ticks": 14,
+ "circuit": {"labels": true,
+   "inputs": [{"name": "A", "at": [0, 0]}, {"name": "B", "at": [0, 1]}],
+   "gates": [{"out": "C", "op": "not", "in": ["A"], "at": [1, 0]},
+             {"out": "Y", "op": "or", "in": ["C", "B"], "at": [2.2, 0.5]}],
+   "outputs": ["Y"]},
+ "delays": {"not": 1, "or": 2},
+ "signals": {"A": [[0, 0], [3, 1]], "B": [[0, 0], [9, 1]]},
+ "draw": ["C", "Y"]}
+```
+
+Time is cut into `ticks` ticks of `tick` `unit`s each (at most 80). `signals`
+gives each input as `[tick, value]` changes, and `draw` names the signals the
+player draws; the answer is one level per tick for each. On screen a drawn
+signal starts as a flat line at its first level and the player clicks to add
+edges, so a room should need only a few. `circuit` lists the
+`inputs`, the `gates` in an order where each comes after its inputs, and the
+`outputs`; `at` is a `[column, row]` position that only places the drawing, and
+`labels` names every wire. A gate's `op` is `not`, `and`, `or`, `xor`, `nand`,
+`nor`, or `dff`. `delays` gives a delay in ticks per `op` (none means 0): a gate
+shows at tick *t* what its inputs were at *t* − delay, and before that what its
+inputs at tick 0 give, so the circuit starts settled. A `dff` is a
+positive-edge-triggered D flip-flop with a `clk` signal: at each rising edge it
+takes the value its input had in the tick before the edge, shows it `delays.dff`
+ticks later (its clk-to-q delay), and holds `start[out]` (default 0) until then.
+A room with a flip-flop has a `clock`: `{"name": "clk", "period": 8, "rise": 4}`
+is high for the first half of each `period` ticks, with a rising edge at tick
+`rise` and every period after.
+
+Pipelining rooms (`kind: "table"`) follow the lectures' practice questions.
+
+```jsonc
+// puzzle, Level 4 — stall a program, then answer questions about it
+{"kind": "table",
+ "chart": {"rows": ["add x3, x2, x2", "or x4, x2, x5", "and x9, x4, x10"],
+           "stages": ["F", "D", "X", "M", "W"], "cycles": 12, "stalls": [0, 0, 2]},
+ "facts": ["pipelined clock period = 220 ps"],
+ "columns": ["", "Single-cycle", "Pipelined"],
+ "rows": [["Minimum clock period (ps)", {"blank": "820"}, {"blank": "220"}]],
+ "asks": [{"ask": "Which is faster?", "blank": "pipelined", "choices": ["single-cycle", "pipelined"]}]}
+```
+
+Every part is optional, and the level's own rooms are built from the hands-on
+ones (`chart` and `clocks`), so that no gate reads like a quiz. `clocks` are clocks
+to tune: `{"name": "With the gold registers", "gold": true, "path": [["clk-to-q", 20], ["adder", 480]], "choices": [480, 500, 980, 1000]}`.
+`path` is the trip a signal makes between two ticks and `choices` the settings
+the player steps through, starting from the slowest; the key is the path's
+total. Race plays the trip against the tick and submits the room, so every race
+is a try: a clock that ticks too soon or has time to spare is a miss. A wrong
+race says only which of the two it was; the trip is drawn with its times once
+the gate opens. `gold` says
+whether the circuit figure shows its pipeline registers while this clock is
+pointed at. `circuit` is a figure in the same form as a wave room's,
+with the ops `reg` (a register; `"gold": true` marks a pipeline register),
+`add`, `mul`, and `box` (a block with a `label`). `facts` are lines of given
+information. `chart` is a pipeline diagram with a row per operation and `cycles`
+columns, in one of two forms. With `starts`, the player clicks the cycle each
+row's first stage is in (counted from 0; the screen numbers cycles from 1) and
+the key is each row's start. With `stalls`, every row is fetched as early as it
+can be and the player holds rows in their second stage with + and −, which
+repeats the held stage and delays the rows behind it; the key is each row's
+stall cycles. After a run (never while planning, which would give the stalls
+away), a stalls chart draws an arrow for every read of a register that a
+line one or two above writes (rows are parsed as `op rd, rs1, rs2`,
+`lw rd, off(rs1)`, `sw rs2, off(rs1)`): green when the value is there in time,
+red when it is read too early. Without `"forwarding": true` a value is there
+once its writer reaches the last stage; with it, a result is ready after the
+writer's third stage (its fourth for a load) and is read in X. A wrong run's
+strike message names the first problem it finds: a read that comes too early,
+with its cycles, or extra stalls, with how many cycles the program could take.
+Once a forwarding chart's gate opens, each arrow's tag also shows its mux
+setting (10 from EX/MEM, 01 from MEM/WB), and a read that the register file
+already holds (00) is drawn from the writer's W to the reader's D. A room's
+`solved_note` is shown in place of its `facts` once the gate opens. A diagram
+with more than six rows draws shorter rows. A starts chart turns cells red where two rows
+share a stage in a cycle. `rows` is a table under `columns` whose cells are text or blanks,
+and `asks` are questions with a blank each. A blank with `choices` is picked
+from them; otherwise it is typed. Every blank in the current rooms has choices,
+to keep answering quick; make the wrong ones the mistakes students really make. The answer lists the chart's numbers,
+then each clock's period, the table's blanks in reading order, then the questions'
+blanks, all as strings.
+
+`server/test_timing.py` checks every room: each reference answer matches the
+simulation or the keys, the lecture examples come out as the lecture slides
+show them, and each blank with choices has its key among them.
+
 `0012` retired the earlier Frame Builder (`frame`), Recursion Elevator
 (`elevator`), and Code Lawyer (`lawyer`) rooms; the game and server no longer
 support those kinds. `server/test_call_stack.py` checks every walkthrough: its good moves keep the contract, every wrong move
@@ -345,7 +450,23 @@ rule, and retires 0009's rooms). Guest mode plays from copies in
 `levels/level_<n>/guest_rooms.json` (each holds its level's whole bank and draw
 rule, and guest mode draws the same way), which a gameplay test keeps in sync.
 `server/test_puzzles.py` checks that every Level 1 gate opens within its move
-limit with `par` as the true minimum, and that each pool offers three gates.
+limit with `par` as the true minimum, and that each pool offers four gates.
+`0015_answers_and_going_back.sql` adds the `answer` column and fills it for
+every active room. `0016_level1_more_gates.sql` adds a fourth gate to each of
+Level 1's topic pools (28 gates). `0017_level2_room_changes.sql` replaces three
+Level 2 rooms that were too much like others (3, 11, and 15) and adds four (20
+rooms). `0018_level4_timing_lab.sql` turns the "The Stack" placeholder into
+Level 4, Timing Lab: five waveform rooms and five pipelining rooms played in
+order, with the `wave` and `table` kinds added to the payload check.
+`0019_draw_without_repeats.sql` adds `aa.players.signed_in_at`, which the draw
+uses so that a player sees every question of a pool before any comes back.
+`0020_levels_3_and_4_gate_versions.sql` puts Levels 3 and 4's rooms into one pool
+per gate, adds two new versions of every gate (Level 3: 24 rooms, Level 4: 30),
+and gives both levels a draw rule. `0021_shorter_prompts.sql` drops the
+controls from 18 Level 3 and 4 prompts (such as "Set both clocks with − and +,
+then press Race"), since each level's **How this level works** card now explains
+them once. From `0016` on, room rows are written by
+`tools/rooms.py` from the guest files; see [adding-content.md](adding-content.md).
 Level ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 
 Drag-and-drop tiles are **stored in a scrambled order** so the seed file does
@@ -399,6 +520,8 @@ run (`attempt_no`). `response` mirrors the payload vocabulary, in ids:
 {"program": ["loop:", "addi a0, a0, 4", "bne a0, a1, loop"]}  // puzzle, Level 2 maze room: the program, one line per action
 {"blanks": ["beq t0, x0, else", "j done"]}           // puzzle, Level 2 code room: the line picked for each blank
 {"choices": [0]}                                      // puzzle, Level 3 walkthrough: the option picked at each moment
+{"waves": {"Y": [1, 1, 0, 0]}}                        // puzzle, Level 4 waveform room: each drawn signal, a level per tick
+{"cells": ["0", "2", "820", "pipelined"]}             // puzzle, Level 4 pipelining room: every blank, in order
 ```
 
 `player_id` is redundant with `run_id → level_runs.player_id`. It is kept so
@@ -428,6 +551,21 @@ gate reopens. `server/gameplay.py` replays attempts and setbacks in time order:
 a question counts as solved only with a correct attempt after its latest
 setback, and strikes are wrong attempts since the player last arrived at the
 gate. Finishing a run requires every question to be solved in that sense.
+
+Since `0015`, a row with no `caused_by_attempt_id` is a gate the player went
+back to themselves (`POST /api/runs/{id}/reopen`). It is replayed the same way,
+so the gate must be opened again; no strike is involved. A gate opened more than
+once keeps the best stars of its correct attempts (`server/scoring.py`).
+
+### `aa.question_events`
+
+Added in migration `0013_reporting_leaderboard.sql`: things a player did on a
+gate that are not answers. `hint` (the hint was shown) and `walk_choice` (a move
+in a Level 3 walkthrough, with its `moment`, `choice`, and whether it was right)
+came first; `0015` adds `answer` (the reference answer was shown). Each has a
+client `request_id`, unique per run, so a retried request is not counted twice.
+Scoring reads them: a hint costs a star, a wrong walkthrough move is a mistake,
+and a shown answer caps the gate at one star.
 
 ### `aa.player_badges`
 

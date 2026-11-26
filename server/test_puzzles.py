@@ -15,38 +15,16 @@ from server.puzzles import (BRANCHES, EXIT, JUNK, Fault, branch_taken, code_blan
 ROOT = Path(__file__).parents[1]
 LEVEL1 = json.loads((ROOT / "levels/level_1/guest_rooms.json").read_text())
 GATES = LEVEL1["rooms"]
-# One winning answer per Level 1 gate, by ordinal (db/migrations/0005_level1_puzzles.sql, and 0010 for
-# gates 11-22): the keys pressed, in order.
-GATE_SOLUTIONS = {
-    1: [0], 2: [0, 0, 0], 3: [1, 0], 4: [0, 1, 0], 5: [2, 0], 6: [0, 1], 7: [0, 1], 8: [0, 1], 9: [0, 0, 1],
-    10: [1, 1, 1], 11: [0, 0, 1], 12: [0, 1, 2], 13: [0, 1], 14: [0, 1], 15: [0, 1], 16: [0, 1], 17: [0, 1],
-    18: [0, 1], 19: [0, 0], 20: [0, 0], 21: [1, 1], 22: [0, 0],
-}
+# One winning answer per Level 1 gate, by ordinal: the keys pressed, in order. Every room's
+# reference answer is kept with it in its level's guest_rooms.json (and in aa.questions.answer).
+GATE_SOLUTIONS = {gate["ordinal"]: gate["answer"]["moves"] for gate in GATES}
 BANK = json.loads((ROOT / "levels/level_2/guest_rooms.json").read_text())
 ROOMS = BANK["rooms"]
 ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
-# One winning answer per Level 2 room, by ordinal (db/migrations/0007_level2_memory_maze.sql): the
-# program for a maze room, the line picked for each blank of a code room.
-SOLUTIONS = {
-    1: ["addi a0, a0, 4"] * 4,
-    2: ["lw a2, 12(a0)"] + ["addi a0, a0, 4"] * 5,
-    3: ["sw t2, 12(a0)"] + ["addi a0, a0, 4"] * 5,
-    4: ["loop:", "addi a0, a0, 4", "bne a0, a1, loop"],
-    5: ["addi a0, a0, 16"] * 2 + ["addi a0, a0, 4"] * 3,
-    6: ["addi a0, a0, 4", "lw t0, 20(a0)", "addi t0, t0, 5", "sw t0, 20(a0)", "addi a0, a0, 16", "addi a0, a0, 4",
-        "addi a0, a0, 4", "addi a0, a0, -16"],
-    7: ["lw t0, -12(a0)", "lw t1, 28(a0)", "sw t1, -12(a0)", "sw t0, 28(a0)", "addi a0, a0, 4", "addi a0, a0, 4",
-        "addi a0, a0, 20", "addi a0, a0, 20"],
-    8: ["slli t3, t2, 2", "lw t5, 4(t3)"],
-    9: ["beq t0, x0, else", "j done"],
-    10: ["loop:", "addi a0, a0, 4", "lw t1, 0(a0)", "bne t1, x0, loop"],
-    11: ["loop:", "lw t0, 0(a0)", "sw t0, 28(a0)", "addi a0, a0, 4", "blt a0, a1, loop"],
-    12: ["loop:", "lw t1, 0(a0)", "add t2, t2, t1", "addi a0, a0, 4", "addi t0, t0, 1", "blt t0, t6, loop"],
-    13: ["sw t4, 0(t3)", "bge t0, x0, loop"],
-    14: ["jal ra, func", "jalr x0, 0(ra)"],
-    15: ["addi sp, sp, -8", "sw ra, 4(sp)", "sw a0, 0(t1)"],
-    16: ["loop:", "lw t0, 0(a0)", "sw t0, -28(a0)", "addi a0, a0, 4", "bne a0, a1, loop"],
-}
+# One winning answer per Level 2 room, by ordinal: the program for a maze room, the line picked
+# for each blank of a code room.
+SOLUTIONS = {room["ordinal"]: room["answer"]["blanks" if room["payload"]["kind"] == "code" else "program"]
+             for room in ROOMS}
 
 
 def answer(ordinal):
@@ -316,7 +294,7 @@ class GradingTests(unittest.TestCase):
         # The lecture's two ways to reach arr[3]: 12 bytes from arr[0], or 8 after one step.
         for program in (SOLUTIONS[2], [step, "lw a2, 8(a0)"] + [step] * 4, [step] * 5 + ["lw a2, -8(a0)"]):
             self.assertTrue(grade_puzzle(ROOM[2], {"program": program}), program)
-        for program in (SOLUTIONS[3], [step, step, "sw t2, 4(a0)"] + [step] * 3):
+        for program in (SOLUTIONS[3], [step, "sw t2, 4(a0)"] + [step] * 4):
             self.assertTrue(grade_puzzle(ROOM[3], {"program": program}), program)
         lecture_order = ["loop:", "lw t1, 0(a0)", "add t2, t2, t1", "addi t0, t0, 1", step, "blt t0, t6, loop"]
         self.assertTrue(grade_puzzle(ROOM[12], {"program": lecture_order}))
@@ -384,7 +362,7 @@ class GateDesignTests(unittest.TestCase):
     """Every gate must open within its move limit, and par must be the true minimum."""
 
     def test_every_gate_is_solvable_and_par_is_optimal(self):
-        self.assertEqual([gate["ordinal"] for gate in GATES], list(range(1, 23)))
+        self.assertEqual([gate["ordinal"] for gate in GATES], list(range(1, 29)))
         for gate in GATES:
             payload = gate["payload"]
             with self.subTest(gate=gate["ordinal"]):
@@ -409,7 +387,7 @@ class GateDesignTests(unittest.TestCase):
         for slot in LEVEL1["draw"][1:]:
             with self.subTest(pool=slot["pool"]):
                 self.assertEqual(slot["take"], 1)
-                self.assertEqual(len(pools[slot["pool"]]), 3)
+                self.assertEqual(len(pools[slot["pool"]]), 4)
 
     def test_every_maze_room_is_solvable_and_par_is_optimal(self):
         for room in ROOMS:

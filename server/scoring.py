@@ -5,12 +5,15 @@ from uuid import UUID
 from .call_stack import moments
 
 
-def stars_for(question: dict, response: dict, mistakes: int, hint_used: bool) -> int:
+def stars_for(question: dict, response: dict, mistakes: int, hint_used: bool, answer_shown: bool = False) -> int:
     """Match the room's star rules, using the server's frozen puzzle and answer.
 
     Mistakes survive retries, reloads and setbacks. Moves/maze rooms use their
-    instruction par; code and tower rooms lose a star after a mistake.
+    instruction par; code, tower, waveform and table rooms lose a star after a
+    mistake. A gate whose answer was shown earns one star.
     """
+    if answer_shown:
+        return 1
     payload = question.get("payload", {})
     kind = payload.get("kind")
     penalty = int(hint_used)
@@ -30,14 +33,15 @@ def stars_for(question: dict, response: dict, mistakes: int, hint_used: bool) ->
 def question_stats(conn, run_id: UUID) -> dict[str, dict]:
     questions = conn.execute("SELECT question_id,public_question FROM aa.run_questions WHERE run_id=%s",
                              (run_id,)).fetchall()
-    result = {str(row["question_id"]): {"mistakes": 0, "hint_used": False, "stars": None} for row in questions}
+    result = {str(row["question_id"]): {"mistakes": 0, "hint_used": False, "answer_shown": False, "stars": None}
+              for row in questions}
     public = {str(row["question_id"]): row["public_question"] for row in questions}
     responses = {}
     for row in conn.execute("""SELECT question_id,response,is_correct FROM aa.question_attempts
             WHERE run_id=%s ORDER BY answered_at,id""", (run_id,)).fetchall():
         key = str(row["question_id"])
         if row["is_correct"]:
-            responses[key] = row["response"]
+            responses.setdefault(key, []).append(row["response"])
         else:
             result[key]["mistakes"] += 1
     for row in conn.execute("""SELECT question_id,kind,is_correct FROM aa.question_events
@@ -45,9 +49,14 @@ def question_stats(conn, run_id: UUID) -> dict[str, dict]:
         stats = result[str(row["question_id"])]
         if row["kind"] == "hint":
             stats["hint_used"] = True
+        elif row["kind"] == "answer":
+            stats["answer_shown"] = True
         elif not row["is_correct"]:
             stats["mistakes"] += 1
-    for key, response in responses.items():
+    # A gate opened more than once (after a setback, or when the player went back to it) keeps
+    # its best stars.
+    for key, answers in responses.items():
         stats = result[key]
-        stats["stars"] = stars_for(public[key], response, stats["mistakes"], stats["hint_used"])
+        stats["stars"] = max(stars_for(public[key], response, stats["mistakes"], stats["hint_used"],
+                                       stats["answer_shown"]) for response in answers)
     return result
