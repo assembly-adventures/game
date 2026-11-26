@@ -120,7 +120,7 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | Location | Responsibility |
 | --- | --- |
 | `start_page.tscn`, `intro_animation.tscn` | Opening screens |
-| `control_center.gd` | Loads saved profile and level availability; opens each playable level |
+| `control_center.gd` | Loads saved profile and level availability; shows each level's best stars or unfinished run; opens each playable level |
 | `player_data.gd` | Same-origin HTTP requests, profile cache, retry IDs, profile-change signal, guest mode |
 | `levels/gate_level.gd` | Runs a level's gates: answer submission, strikes and setbacks, resume, completion, Show answer, and going back to an open gate; each level's scene sets its ID and badge |
 | `levels/level_1/puzzle_room.gd`, `levels/level_2/maze_room.gd`, `levels/level_2/code_room.gd` | One gate's puzzle for each payload kind (`moves`, `maze`, `code`), with a client copy of the grader for guest mode |
@@ -130,6 +130,7 @@ Never copy production session keys, CSXL tokens, or roster data into tests.
 | `levels/level_<n>/guest_rooms.json`, `tools/rooms.py` | Each level's room bank, reference answers, and draw rule (what guest mode plays), and the tool that writes migration SQL from it |
 | `levels/level_2/assembly.gd`, `ui/registers.gd` | Reading the assembly lines Levels 2 and 3 write; ABI register names and their x-names |
 | `ui/instruction_guide.gd` | The instruction guide every level opens from its top bar (or the I key): what each instruction and register on the gate means. Rooms list their lines with `guide()` |
+| `ui/how_to_play.gd` | Each level's **How this level works** card (the ? button or the H key): what the player does, the controls, and scoring. Opens by itself the first time a device enters a level |
 | `ui/settings_panel.gd`, `ui/leaderboard.gd` | Shared settings overlay (including the nickname) and weekly per-level standings |
 | `ui/learning_log.gd` | Durable hint/decision event queue, retried with stable request IDs |
 | `ui/corridor.gd` | The corridor of gates and the Chip Chomper shown above every level's puzzle; a click on an open gate asks to go back to it |
@@ -194,7 +195,7 @@ and `build/browser-smoke.png`. The smoke test uses locally installed Chrome.
 ### Questions or schema
 
 Add a new, uniquely numbered SQL migration after the existing files, for example
-`db/migrations/0019_describe_change.sql`. For questions, write the room in its
+`db/migrations/0021_describe_change.sql`. For questions, write the room in its
 level's `guest_rooms.json` and let `tools/rooms.py` write the SQL;
 [adding-content.md](adding-content.md) walks through it. Never edit applied files such as
 `0003_questions.sql`: checksum validation will reject them. Use the migration

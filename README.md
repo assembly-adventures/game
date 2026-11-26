@@ -11,11 +11,13 @@ go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   `xori`, …) to make an 8-bit register match a target pattern of bulbs. Each run
   draws ten gates from a bank of twenty-eight: the four tutorial gates, then one
   of the four gates on each topic (hex, masks, flips, signed values, overflow,
-  and shifts).
+  and shifts). A drawn gate doesn't come back until the player has played every
+  gate on its topic since signing in; signing in again starts over (in guest
+  mode, reloading the page does). Every level that draws works this way.
 - **Level 2, Memory Maze:** addresses, row-major layout, `lw`/`sw` with offsets,
   arrays, branches, loops, and procedure calls, following Lecture 4. Each run
   draws ten rooms from a bank of twenty: four tutorial rooms, then one memory,
-  one branches, and one loops room at random, both procedure rooms, and a race
+  one branches, and one loops room, both procedure rooms, and a race
   against the Chip Chomper. Maze rooms are memory words seen from above: players
   steer the robot with the arrow keys and click words to load and store them,
   and every action is written as a real RISC-V line. Some rooms teach the robot
@@ -25,7 +27,8 @@ go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   beside it.
 - **Level 3, Call Stack Tower:** procedures, `jal` and `jalr`, the calling
   convention, stack frames, and recursion, following Lectures 6 and 7, as a
-  story of eight walkthroughs students follow along. Each room is a short
+  story of eight gates students follow along. Each gate has three versions
+  (24 walkthroughs in all) and a run draws one of each, so replays differ. Each room is a short
   program played line by line: the code lights the line that ran, the stack
   hangs below as a tower of frames with the robot riding `sp`, the registers sit
   above the code, and a caption says what each line did, with its values. Play
@@ -40,7 +43,8 @@ go by their ABI names (`a0`, `t1`, `sp`, `ra`), with each x-name in small print:
   base case, two calls, and a race against the Chip Chomper climbing up from the
   heap.
 - **Level 4, Timing Lab:** timing analysis and pipelining, built from the
-  lectures' examples and in-class practice questions: ten rooms played in order.
+  lectures' examples and in-class practice questions: ten gates played in order,
+  each drawn from three versions (30 rooms in all), so replays differ.
   The first five are waveform diagrams. Each shows a small circuit beside a
   timing grid with the inputs drawn, and the player draws each remaining signal
   by clicking its row wherever it changes, which puts an edge there. Moving
@@ -70,17 +74,26 @@ appears without moving anything.
 
 On every gate, **Instruction guide** in the top bar (or the I key) spells out
 each instruction's abbreviation, how it's written, and what it does, plus the
-registers in play.
+registers in play. The **?** button (or the H key) opens the level's **How this
+level works** card: what the player does, the controls, and how stars and
+strikes work. It opens by itself the first time a device enters each level, so
+the rooms' prompts keep to the question. Under the gate's title, a line shows the
+stars it can still earn and its strikes (**Strikes 1 of 3**).
 
 A gate opens by itself when its goal holds. The server grades by replaying what
 the player did, so any valid solution passes. Running out of moves, or a code
 room's run that fails a test, is a strike; on a gate's third strike the Chip
 Chomper drags the player back one gate, which must be opened again. Players can
-resume unfinished runs and earn a saved badge for each level.
+resume unfinished runs and earn a saved badge for each level. Each level's chip
+in the Control Center shows the best stars of a finished run (**★ 30/30**), or
+**Continue · gate 4 of 8** while a run is unfinished.
 
-Two helpers work on every gate. **Show answer** in the top bar shows one way to
+Two helpers work on every gate. **Show answer (max 1★)** in the top bar shows one way to
 open the gate (after asking once, since a gate opened that way earns one star);
-the answer stays under the room while the player follows it. And a click on any
+the answer hangs under the button, over the corridor, while the player follows
+it. Messages under the room are colour-coded and marked (✗ red for a strike, ✓ green
+for an open gate), hint buttons say what they cost (**Hint (−1★)**), and a
+finished level offers to go back or play again. And a click on any
 open gate in the corridor **goes back** to it: the gate closes until it is
 opened again, and it keeps its best stars, so a player can retry a gate for a
 better score or just for practice. Other levels are
@@ -90,7 +103,7 @@ server.
 
 The Control Center's trophy opens weekly per-level standings, ranked by highest
 stars then fewest mistakes in each player's best completed run and listed by
-unique nicknames, never Onyens. The adjacent gear opens audio, fullscreen,
+unique nicknames, never Onyens. The adjacent gear opens audio, fullscreen, reduce motion,
 nickname, and leaderboard visibility settings; it is also available during levels.
 Approved TAs and professors can open a staff dashboard with class, question, and
 individual statistics, where they can also clear inappropriate nicknames. See [classroom features](docs/classroom-features.md)

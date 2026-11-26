@@ -13,6 +13,7 @@ const ROOMS := {"moves": PuzzleRoom, "maze": preload("res://levels/level_2/maze_
 const Corridor := preload("res://ui/corridor.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
 const InstructionGuide := preload("res://ui/instruction_guide.gd")
+const HowToPlay := preload("res://ui/how_to_play.gd")
 const Style := preload("res://ui/style.gd")
 
 @export var level_id := 1
@@ -40,6 +41,9 @@ var code_box: PanelContainer
 var code_label: Label
 var options_box: VBoxContainer
 var feedback: Label
+var feedback_box: PanelContainer  # The bar the message sits in; shown only when there is one.
+var feedback_tone := "info"  # What the next message is: "bad" (a strike or an error), "good" (an open gate), or "info".
+var shown_feedback := ""
 var submit: Button
 var retry: Button
 var corridor
@@ -47,6 +51,11 @@ var menu_button: Button
 var learning_failed := false
 var guide_button: Button
 var guide  # The instruction guide, drawn over everything when open.
+var help  # The level's how-to-play card, drawn over everything when open.
+var help_button: Button
+var status_line: RichTextLabel  # Under the title: the stars the gate can still earn, and its strikes.
+var shown_status := ""
+var feedback_icon: Label
 var layout_root: MarginContainer
 var answer_button: Button
 var answer_box: PanelContainer
@@ -60,6 +69,49 @@ func _ready() -> void:
 	_build_ui()
 	LearningLog.saved.connect(_learning_saved)
 	_load_run()
+
+## Under the title: the stars this gate can still earn (dimmed where one is lost) and its strikes.
+func _update_status() -> void:
+	var text := ""
+	if puzzle != null and not finished and not question.is_empty():
+		var id := str(question.id)
+		var can := clampi(int(puzzle.stars()), 1, 3)
+		if answers.has(id) or bool(run.get("question_stats", {}).get(id, {}).get("answer_shown", false)):
+			can = 1
+		var lit := "[color=#%s]%s[/color][color=#%s]%s[/color]" % [Style.GOLD.to_html(false), "★".repeat(can),
+			Color(Style.TEXT, 0.25).to_html(), "★".repeat(3 - can)]
+		var count := int(strikes.get(id, 0))
+		var strike_color := Style.RED if count > 0 else Color(Style.TEXT, 0.6)
+		text = "[center][color=#%s]%s[/color] %s   [color=#%s]·   Strikes %d of %d[/color][/center]" % [
+			Color(Style.TEXT, 0.6).to_html(), "Earned" if ready_for_next else "Can still earn", lit,
+			strike_color.to_html(), count, PuzzleRoom.STRIKES]
+	if text != shown_status:
+		shown_status = text
+		status_line.text = text
+		status_line.visible = not text.is_empty()
+
+## The message bar follows its text: hidden when there is nothing to say, and tinted by the kind
+## of news, red for a strike or an error, green for an open gate, cyan for anything else.
+func _process(_delta: float) -> void:
+	_update_status()
+	if feedback == null or feedback.text == shown_feedback:
+		return
+	shown_feedback = feedback.text
+	feedback_box.visible = not shown_feedback.is_empty()
+	var tint: Color = {"bad": Style.RED, "good": Style.GREEN}.get(feedback_tone, Style.CYAN)
+	feedback_icon.text = {"bad": "✗", "good": "✓"}.get(feedback_tone, "›")
+	feedback_icon.add_theme_color_override("font_color", tint)
+	feedback_tone = "info"
+	var look := StyleBoxFlat.new()
+	look.bg_color = Color(tint, 0.1)
+	look.border_color = Color(tint, 0.75)
+	look.border_width_left = 4
+	look.set_corner_radius_all(8)
+	look.content_margin_left = 14
+	look.content_margin_right = 14
+	look.content_margin_top = 8
+	look.content_margin_bottom = 8
+	feedback_box.add_theme_stylebox_override("panel", look)
 
 func _build_ui() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -85,11 +137,23 @@ func _build_ui() -> void:
 	menu_button.focus_mode = Control.FOCUS_NONE
 	menu_button.pressed.connect(_return_to_center)
 	bar.add_child(menu_button)
+	var heading_box := VBoxContainer.new()
+	heading_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	heading_box.add_theme_constant_override("separation", 0)
+	bar.add_child(heading_box)
 	title = Label.new()
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
-	bar.add_child(title)
+	title.add_theme_font_size_override("font_size", 22)
+	heading_box.add_child(title)
+	status_line = RichTextLabel.new()
+	status_line.bbcode_enabled = true
+	status_line.fit_content = true
+	status_line.scroll_active = false
+	status_line.autowrap_mode = TextServer.AUTOWRAP_OFF
+	status_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	status_line.add_theme_font_size_override("normal_font_size", 14)
+	heading_box.add_child(status_line)
 	guide_button = Button.new()
 	guide_button.text = "Instruction guide ▼"
 	guide_button.tooltip_text = "What each instruction on this gate means (I)"
@@ -103,11 +167,36 @@ func _build_ui() -> void:
 	answer_button.pressed.connect(_toggle_answer)
 	answer_button.hide()
 	bar.add_child(answer_button)
+	# Whether progress is kept, as a small pill: gold for a guest, whose progress resets on reload.
 	var saving := Label.new()
-	saving.text = "Guest: progress is not saved" if PlayerData.guest else "Progress saves automatically"
-	saving.add_theme_font_size_override("font_size", 13)
-	saving.add_theme_color_override("font_color", Color(Style.TEXT, 0.55))
+	var tint := Style.GOLD if PlayerData.guest else Style.GREEN
+	saving.text = "GUEST · NOT SAVED" if PlayerData.guest else "✓ SAVED"
+	saving.tooltip_text = "Guest progress resets when you reload the page." if PlayerData.guest \
+		else "Progress saves to your UNC account automatically."
+	saving.mouse_filter = Control.MOUSE_FILTER_PASS
+	saving.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	saving.add_theme_font_override("font", Style.MONO)
+	saving.add_theme_font_size_override("font_size", 11)
+	saving.add_theme_color_override("font_color", tint)
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = Color(tint, 0.1)
+	pill.border_color = Color(tint, 0.6)
+	pill.set_border_width_all(1)
+	pill.set_corner_radius_all(12)
+	pill.content_margin_left = 10
+	pill.content_margin_right = 10
+	pill.content_margin_top = 4
+	pill.content_margin_bottom = 4
+	saving.add_theme_stylebox_override("normal", pill)
 	bar.add_child(saving)
+	help_button = Button.new()
+	help_button.text = "?"
+	help_button.tooltip_text = "How this level works (H)"
+	help_button.custom_minimum_size = Vector2(48, 48)
+	help_button.focus_mode = Control.FOCUS_NONE
+	help_button.add_theme_font_size_override("font_size", 20)
+	help_button.pressed.connect(_toggle_help)
+	bar.add_child(help_button)
 	var settings_button := Settings.make_button()
 	settings_button.focus_mode = Control.FOCUS_NONE
 	bar.add_child(settings_button)
@@ -184,17 +273,33 @@ func _build_ui() -> void:
 	answer_style.set_content_margin_all(8)
 	answer_box.add_theme_stylebox_override("panel", answer_style)
 	answer_box.hide()
-	layout.add_child(answer_box)
+	answer_box.custom_minimum_size = Vector2(600, 0)
+	answer_box.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(answer_box)  # Over the screen, under its button: opening it never squeezes the room.
 	answer_label = Label.new()
 	answer_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	answer_label.add_theme_font_override("font", Style.MONO)
 	answer_label.add_theme_font_size_override("font_size", 14)
 	answer_label.add_theme_color_override("font_color", Style.GOLD)
+	answer_label.custom_minimum_size = Vector2(576, 0)  # A wrapping label needs a width to wrap at.
 	answer_box.add_child(answer_label)
+	# The message under the room (strikes, open gates, and anything else to say) sits in a tinted
+	# bar that only shows when there is something in it; see _process.
+	feedback_box = PanelContainer.new()
+	feedback_box.hide()
+	layout.add_child(feedback_box)
 	feedback = Label.new()
 	feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feedback.add_theme_font_size_override("font_size", 18)
-	layout.add_child(feedback)
+	feedback.add_theme_font_size_override("font_size", 17)
+	var message_row := HBoxContainer.new()
+	message_row.add_theme_constant_override("separation", 10)
+	feedback_box.add_child(message_row)
+	feedback_icon = Label.new()  # ✗, ✓, or ›: the kind of news, for anyone who can't tell red from green.
+	feedback_icon.add_theme_font_size_override("font_size", 18)
+	feedback_icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	message_row.add_child(feedback_icon)
+	feedback.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	message_row.add_child(feedback)
 	submit = Button.new()
 	submit.text = "Check answer"
 	submit.custom_minimum_size = Vector2(0, 44)
@@ -208,6 +313,9 @@ func _build_ui() -> void:
 	guide = InstructionGuide.new()
 	guide.toggled.connect(func(open: bool): guide_button.text = _guide_title() + (" ▲" if open else " ▼"))
 	add_child(guide)
+	help = HowToPlay.new()
+	help.toggled.connect(func(open: bool): help_button.text = "×" if open else "?")
+	add_child(help)
 
 ## Number keys press instruction keys; Backspace undoes, R restarts, Enter continues, and I opens
 ## the instruction guide. A room can claim other keys first (Level 2 steps the robot with the arrow
@@ -218,6 +326,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	var key: int = event.keycode
+	if help.visible:
+		if key in [KEY_ESCAPE, KEY_H, KEY_ENTER, KEY_KP_ENTER]:
+			help.close()
+		get_viewport().set_input_as_handled()
+		return
+	if key == KEY_H:
+		_toggle_help()
+		get_viewport().set_input_as_handled()
+		return
 	if guide.visible:
 		if key in [KEY_ESCAPE, KEY_I]:
 			guide.close()
@@ -239,6 +356,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 
+## Opens or closes the level's how-to-play card.
+func _toggle_help() -> void:
+	if help.visible:
+		help.close()
+	else:
+		guide.close()
+		help.open(level_id)
+
 ## What the gate's guide is called: the instruction guide, unless the room names its own.
 func _guide_title() -> String:
 	return str(puzzle.guide_title) if puzzle != null and "guide_title" in puzzle else InstructionGuide.TITLE
@@ -258,6 +383,7 @@ func _load_run() -> void:
 	var result := await PlayerData.api_request("/runs", HTTPClient.METHOD_POST, {"level_id": level_id, "telemetry_version": 1})
 	_set_busy(false)
 	if not result.ok:
+		feedback_tone = "bad"
 		feedback.text = result.error
 		submit.disabled = true
 		retry.show()
@@ -281,6 +407,9 @@ func _load_run() -> void:
 			corridor.open_gate(i, int(run.get("question_stats", {}).get(str(item.id), {}).get("stars", 3)))
 	corridor.max_strikes = PuzzleRoom.STRIKES
 	_show_next_unsolved()
+	# The first time this device opens the level, the card explains how it is played.
+	if not HowToPlay.seen(level_id) and not finished:
+		help.open(level_id)
 
 func _show_next_unsolved() -> void:
 	while question_index < run.questions.size() and run.questions[question_index].id in solved:
@@ -326,7 +455,7 @@ func _show_next_unsolved() -> void:
 func _sync_answer_button() -> void:
 	answer_button.visible = puzzle != null and not ready_for_next and not finished
 	answer_button.text = "Hide answer ▲" if answer_box.visible else "Answer ▼" if answers.has(str(question.get("id", ""))) \
-		else "Show it (1 star)" if answer_asked else "Show answer"
+		else "Show it (1 star)" if answer_asked else "Show answer (max 1★)"
 
 ## The first press asks, since seeing the answer costs stars; the second fetches it. The server
 ## records that it was shown (an "answer" learning event) and scores the gate at one star. After
@@ -338,7 +467,7 @@ func _toggle_answer() -> void:
 	if answer_box.visible:
 		answer_box.hide()
 	elif answers.has(id):
-		answer_box.show()
+		_show_answer_box()
 	elif not answer_asked and not bool(run.get("question_stats", {}).get(id, {}).get("answer_shown", false)):
 		answer_asked = true
 		feedback.text = "Show this gate's answer? Opening the gate after seeing it earns 1 star. Press the button again to see it."
@@ -351,16 +480,26 @@ func _toggle_answer() -> void:
 				{"question_id": question.id, "request_id": PlayerData.new_request_id(), "kind": "answer"})
 		_set_busy(false)
 		if not result.ok:
+			feedback_tone = "bad"
 			feedback.text = str(result.error)
 			return
 		_learning_saved(str(run.id), id, result.data.get("question_stats", {}))
 		var lines: Array = ROOMS[str(question.payload.kind)].answer_lines(question.payload, result.data.answer)
 		answers[id] = lines
-		answer_label.text = "Answer:   " + "      ".join(PackedStringArray(lines))
-		answer_box.show()
+		answer_label.text = "ONE WAY TO OPEN THIS GATE  ·  it now earns at most 1 star\n" + "\n".join(PackedStringArray(lines))
+		_show_answer_box()
 		feedback.text = "Here is one way to open this gate. Follow it, and work out why it works."
 		Audio.play("hint", -4.0)
 	_sync_answer_button()
+
+## Shows the answer in a panel hanging under its button, over the corridor.
+func _show_answer_box() -> void:
+	answer_box.show()
+	answer_box.reset_size()
+	var corner := answer_button.get_global_rect()
+	var right := corner.end.x - global_position.x
+	answer_box.position = Vector2(clampf(right - answer_box.size.x, 16.0, maxf(size.x - answer_box.size.x - 16.0, 16.0)),
+		corner.end.y - global_position.y + 8.0)
 
 ## Open gates in the corridor can be clicked to go back to them, except while the run is busy.
 func _sync_corridor() -> void:
@@ -386,6 +525,7 @@ func _go_back(index: int) -> void:
 			{"question_id": run.questions[index].id})
 	_set_busy(false)
 	if not result.ok:
+		feedback_tone = "bad"
 		feedback.text = str(result.error)
 		return
 	run = result.data
@@ -518,6 +658,7 @@ func _submit() -> void:
 	})
 	_set_busy(false)
 	if not result.ok:
+		feedback_tone = "bad"
 		feedback.text = result.error
 		# Retain the same request ID if the network outcome is unknown.
 		if int(result.get("status", 0)) == 0 or int(result.get("status", 0)) >= 500:
@@ -547,7 +688,9 @@ func _submit() -> void:
 			var stars: int = int(result.data.get("stars", puzzle.stars()))
 			puzzle.solved()
 			corridor.open_gate(question_index, stars)
+			PlayerData.note_guest_stars(level_id, str(question.id), stars)
 			Audio.play("open")
+			feedback_tone = "good"
 			feedback.text = "%s %s%s" % ["★".repeat(stars), "Perfect!" if stars == 3 else "Gate open!", explanation]
 			# Going back only helps when the star was lost to par (too many moves or instructions):
 			# a mistake, a hint, or a shown answer counts against the gate for the rest of the run.
@@ -558,6 +701,7 @@ func _submit() -> void:
 			answer_box.hide()
 			_sync_answer_button()
 		else:
+			feedback_tone = "good"
 			feedback.text = ("Correct!" if PlayerData.guest else "Correct — answer saved.") + explanation
 			submit.text = "Finish level" if last else "Next question"
 		submit.show()
@@ -574,8 +718,10 @@ func _submit() -> void:
 		var warning: String = puzzle.retry_tip() if puzzle.has_method("retry_tip") else "Try a different order."
 		if count == PuzzleRoom.STRIKES - 1:
 			warning = "One more and the Chip Chomper drags you back a gate." if question_index > 0 else "One more and the Chip Chomper makes you start over."
+		feedback_tone = "bad"
 		feedback.text = "%s Strike %d of %d. %s" % [miss, count, PuzzleRoom.STRIKES, warning]
 	else:
+		feedback_tone = "bad"
 		feedback.text = "Not quite. Try again — retries are allowed."
 
 ## The last strike: the Chomper bites the robot and drags it back to the gate the server
@@ -590,12 +736,14 @@ func _dragged_back(target_id: String) -> void:
 	solved.erase(target_id)
 	_set_busy(true)
 	get_tree().create_timer(0.62, false).timeout.connect(Audio.play.bind("dragged"))
+	feedback_tone = "bad"
 	feedback.text = "CHOMP! The Chip Chomper caught you!"
 	await corridor.bite(target)
 	_set_busy(false)
 	var dragged := target < question_index
 	question_index = target
 	_show_next_unsolved()
+	feedback_tone = "bad"
 	feedback.text = "The Chip Chomper dragged you back to gate %d. Open it again to move on." % (target + 1) if dragged \
 		else "The Chip Chomper made you start this gate over."
 
@@ -609,6 +757,7 @@ func _finish() -> void:
 	_set_busy(false)
 	submit.hide()
 	if not result.ok:
+		feedback_tone = "bad"
 		feedback.text = result.error
 		retry.show()
 		return
@@ -625,8 +774,10 @@ func _finish() -> void:
 	corridor.finish()
 	Audio.play("complete")
 	_show_badge()
+	_show_finish_actions()
 	_show_prompt(finish_line)
 	title.text = "Level complete — badge earned!" if PlayerData.guest else "Level complete — badge saved!"
+	feedback_tone = "good"
 	feedback.text = "Guest badges reset when you reload." if PlayerData.guest else "Your badge will be here when you sign in again."
 	if not PlayerData.guest and result.data.get("leaderboard_eligible", false):
 		feedback.text = "%d / %d stars · %d mistake%s. Your best run this week counts on the leaderboard." % [
@@ -635,6 +786,27 @@ func _finish() -> void:
 	elif not PlayerData.guest:
 		feedback.text += " Replay this level to enter the weekly leaderboard."
 	retry.hide()
+
+## What to do next, under the badge: back to the Control Center, or straight into another run.
+func _show_finish_actions() -> void:
+	var actions := HBoxContainer.new()
+	actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	actions.add_theme_constant_override("separation", 14)
+	options_box.add_child(actions)
+	var home := Button.new()
+	home.text = "◀  Back to the Control Center"
+	home.custom_minimum_size = Vector2(300, 48)
+	home.focus_mode = Control.FOCUS_NONE
+	for look in ["normal", "hover", "pressed", "disabled"]:
+		home.add_theme_stylebox_override(look, Style.key_style(Style.GREEN, look))
+	home.pressed.connect(_return_to_center)
+	actions.add_child(home)
+	var again := Button.new()
+	again.text = "Play again  ▶"
+	again.custom_minimum_size = Vector2(200, 48)
+	again.focus_mode = Control.FOCUS_NONE
+	again.pressed.connect(func(): get_tree().reload_current_scene())
+	actions.add_child(again)
 
 func _show_badge() -> void:
 	var badge := TextureRect.new()
@@ -652,6 +824,8 @@ func _show_badge() -> void:
 
 ## Jolts the whole screen, fading out over a third of a second.
 func _shake(strength: float) -> void:
+	if Settings.reduce_motion:
+		return
 	var tween := create_tween()
 	tween.tween_method(func(fade: float):
 		layout_root.position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * strength * fade, 1.0, 0.0, 0.35)
@@ -689,6 +863,7 @@ func _flush_learning() -> bool:
 		feedback.text = "Your latest move is saved."
 		retry.hide()
 	if not saved_ok:
+		feedback_tone = "bad"
 		feedback.text = LearningLog.last_error + " Retry to save your latest move."
 		retry.show()
 		if puzzle != null:

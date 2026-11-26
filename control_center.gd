@@ -94,11 +94,11 @@ func _header() -> Control:
 	actions.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	actions.add_theme_constant_override("separation", 8)
 	header.add_child(actions)
-	leaderboard_button = IconButton.new("leaderboard")
+	leaderboard_button = IconButton.new("leaderboard", "Leaderboard")
 	leaderboard_button.pressed.connect(func(): get_tree().change_scene_to_file("res://leaderboard.tscn"))
 	leaderboard_button.visible = not Settings.hide_leaderboard
 	actions.add_child(leaderboard_button)
-	actions.add_child(Settings.make_button())
+	actions.add_child(Settings.make_button("Settings"))
 	return header
 
 func _footer() -> Control:
@@ -145,12 +145,15 @@ func _load_profile() -> void:
 		return
 	var active := {}
 	var completed := {}
+	var details := {}
 	for level in PlayerData.levels:
 		active[int(level.id)] = bool(level.is_active)
 		completed[int(level.id)] = bool(level.get("completed", false))
+		details[int(level.id)] = level
 	for level in LEVELS:
 		var done: bool = completed.get(level.id, false) or level.badge in PlayerData.earned_badges
 		chips[level.id].set_state(active.get(level.id, false) and level.has("scene"), done)
+		chips[level.id].set_progress(details.get(level.id, {}))
 	board.place_characters()
 	if PlayerData.guest:
 		status_label.text = "Guest mode: Levels 1 to 4. Progress resets when you reload."
@@ -295,6 +298,8 @@ class Chip extends Button:
 	var complete := false
 	var badge: TextureRect
 	var t := 0.0
+	var best := ""  # "27 / 30": the best finished run's stars, or "" before any.
+	var going := ""  # "gate 4 of 8": where a run in progress stands, or "" when none is.
 
 	func _init(entry: Dictionary) -> void:
 		level = entry
@@ -324,6 +329,19 @@ class Chip extends Button:
 		badge.modulate.a = 1.0 if open or done else 0.4
 		tooltip_text = "Replay this level" if done and open else "Start or resume this level" if open else "Coming soon"
 
+	## The player's best stars on the level, and where an unfinished run stands.
+	func set_progress(level_info: Dictionary) -> void:
+		best = ""
+		going = ""
+		if level_info.get("best_stars") != null and level_info.get("max_stars") != null:
+			best = "%d/%d" % [int(level_info.best_stars), int(level_info.max_stars)]
+		var unfinished = level_info.get("in_progress")
+		if unfinished is Dictionary and int(unfinished.get("total", 0)) > 0:
+			going = "gate %d of %d" % [mini(int(unfinished.solved) + 1, int(unfinished.total)), int(unfinished.total)]
+		if not going.is_empty() and unlocked:
+			tooltip_text = "Continue this level where you left off"
+		queue_redraw()
+
 	func _process(delta: float) -> void:
 		t += delta
 		badge.position.y = 20.0 + _lift()
@@ -352,10 +370,20 @@ class Chip extends Button:
 		var tag := "CPU CORE" if core else "LEVEL %d" % level.id
 		var status := "✓ Complete" if complete else "▶ Play" if unlocked else "Locked"
 		var status_color := Style.GREEN if complete else Style.GOLD if unlocked else Color(Style.TEXT, 0.4)
+		var note := ""  # Right-aligned on the status line: where the run stands, or the best stars.
+		if unlocked and not going.is_empty():
+			status = "▶ Continue"
+			status_color = Style.GOLD
+			note = going
+		elif complete and not best.is_empty():
+			note = "★ " + best
 		draw_string(Style.MONO, Vector2(94, 28 + lift), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(accent, 0.9))
 		draw_multiline_string(font, Vector2(94, 50 + lift), level.name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 104, 17, 2,
 			Style.TEXT)
 		draw_string(font, Vector2(94, size.y - 13 + lift), status, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
+		if not note.is_empty():
+			draw_string(font, Vector2(94, size.y - 13 + lift), note, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 108, 13,
+				Style.GOLD if note.begins_with("★") else Color(Style.TEXT, 0.65))
 		if not unlocked and not complete:
 			var lock := Vector2(size.x - 22, 22 + lift)
 			draw_arc(lock + Vector2(0, -3), 5, PI, TAU, 10, Color(Style.TEXT, 0.4), 2, true)

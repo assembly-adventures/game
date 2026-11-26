@@ -22,8 +22,8 @@ A room has these fields:
 | Field | Meaning |
 | --- | --- |
 | `ordinal` | Its place in the level's bank, counting from 1 with no gaps |
-| `pool` | The group a draw rule picks from (Levels 1 and 2); omitted in levels that play every room in order |
-| `prompt` | First line: the goal, shown large. After the first `\n`: the one idea the gate turns on |
+| `pool` | The group a draw rule picks from. Every level draws today: Levels 1 and 2 have topic pools, and in Levels 3 and 4 each gate is a pool of three versions. Omit it only in a level that plays every room in order |
+| `prompt` | First line: the goal, shown large. After the first `\n`: the one idea the gate turns on. Leave out the controls ("press Race", "click a gold row"): the level's **How this level works** card in `ui/how_to_play.gd` explains them once |
 | `code_snippet` | The C the room translates, or `null` |
 | `hint` | Shown when the player asks; costs a star |
 | `explanation` | Shown when the gate opens |
@@ -53,7 +53,7 @@ A room has these fields:
 
    ```bash
    { echo "BEGIN;"; python tools/rooms.py insert 2 21 --difficulty 2; echo "COMMIT;"; } \
-     > db/migrations/0019_level2_another_room.sql
+     > db/migrations/0021_level2_another_room.sql
    ```
 
    Add a comment at the top saying what the room teaches and why it was added.
@@ -67,9 +67,12 @@ A room has these fields:
    counts in the [README](../README.md).
 
 If the level draws rooms, check its `draw` rule (in the JSON file and
-`aa.levels.draw`). A pool with `"take": 1` picks one room at random from the
-pool; a pool with no `take` plays all of its rooms. Level 2 always plays ten
-rooms; a test checks that.
+`aa.levels.draw`). A pool with `"take": 1` picks the room the player has played
+least since signing in (in guest mode, since the page loaded); a tie avoids the
+room from their previous run and is then broken at random. So a player sees every
+room of a pool before any comes back, and a room you add to a pool is drawn next
+by everyone who has already played the others. A pool with no `take` plays all
+of its rooms every run. Level 2 always plays ten rooms; a test checks that.
 
 ## Replace or fix a question
 
@@ -84,7 +87,7 @@ attempts keep pointing at what students actually saw.
 { echo "BEGIN;"
   python tools/rooms.py retire 2 11
   python tools/rooms.py insert 2 11 --difficulty 2
-  echo "COMMIT;"; } > db/migrations/0019_level2_replace_room_11.sql
+  echo "COMMIT;"; } > db/migrations/0021_level2_replace_room_11.sql
 ```
 
 `0017_level2_room_changes.sql` is a worked example. Runs already in progress
@@ -181,7 +184,9 @@ designs for them.
    converted to paths, since the web build has no fonts for SVG text) and record
    it in `assets/CREDITS.md` if it is not your own.
 4. In `control_center.gd`, give the level's entry in `LEVELS` its name, icon,
-   and `scene`. A level without a `scene` stays locked.
+   and `scene`. A level without a `scene` stays locked. In `ui/how_to_play.gd`,
+   add the level's card to `LEVELS`: what the player does, the controls, and
+   how it scores.
 5. In `player_data.gd`, add it to `GUEST_LEVELS`; in `ui/leaderboard.gd`, add
    its tab to `LEVEL_NAMES`; in `export_presets.cfg`, add its
    `guest_rooms.json` to `include_filter`, or the web build ships without it.
@@ -222,8 +227,8 @@ an approved deployment.
 | Idea | Notes |
 | --- | --- |
 | Levels 5 and 6, and the challenge | Placeholders. See the proposals in [level-brainstorm.md](level-brainstorm.md) (Decoder Vault, Circuit Foundry, Datapath Plumber, Memory Wall, the boss) |
-| A draw for Level 4 | It plays its ten rooms in order. A bank with pools, like Levels 1 and 2, would make replays differ; a new waveform room is only a new payload, since `server/timing.py` simulates any circuit of its gates |
 | More timing and pipeline rooms | Setup and hold times, control hazards (flushes) in the pipeline diagram, and the full performance equation |
-| Level 3 practice rooms | Its story is fixed at eight walkthroughs; the retired Frame Builder and Code Lawyer rooms could return as practice |
+| More versions of a gate | Levels 3 and 4 have three versions of every gate. A fourth version is one room added to the gate's pool (copy a room of that pool); the tests check it like the others |
+| Level 3 practice rooms | The retired Frame Builder and Code Lawyer rooms could return as practice |
 | Question authoring for staff | Questions are still added by migration; the staff dashboard is read-only |
 | Rosters and sections | Standings and statistics cover everyone who has signed in |

@@ -1,8 +1,50 @@
 {
+ "draw": [
+  {
+   "pool": "logic",
+   "take": 1
+  },
+  {
+   "pool": "delay",
+   "take": 1
+  },
+  {
+   "pool": "path",
+   "take": 1
+  },
+  {
+   "pool": "flip-flop",
+   "take": 1
+  },
+  {
+   "pool": "clk-to-q",
+   "take": 1
+  },
+  {
+   "pool": "clock",
+   "take": 1
+  },
+  {
+   "pool": "overlap",
+   "take": 1
+  },
+  {
+   "pool": "five-stage",
+   "take": 1
+  },
+  {
+   "pool": "stalls",
+   "take": 1
+  },
+  {
+   "pool": "forwarding",
+   "take": 1
+  }
+ ],
  "rooms": [
   {
    "ordinal": 1,
-   "prompt": "Draw D, E, and Y as the inputs change.\nNo delays yet: each gate's output follows its inputs at once. Click a gold row at the moment its signal changes: it flips from there on. Click an edge again to take it away.",
+   "prompt": "Draw D, E, and Y as the inputs change.\nNo delays yet: each gate's output follows its inputs at once.",
    "code_snippet": null,
    "hint": "D is 1 only while A and B are both 1. E is the opposite of C. Y is 1 whenever D or E is 1.",
    "explanation": "The AND gate's output D is 1 only while both A and B are 1: from 20 to 50 ps, and again from 90 ps. The NOT gate flips C, so E is 1 from 20 to 90 ps. Y is 1 while either is: from 20 ps on, because D rises at the same moment E falls.",
@@ -165,7 +207,8 @@
       1
      ]
     }
-   }
+   },
+   "pool": "logic"
   },
   {
    "ordinal": 2,
@@ -291,7 +334,8 @@
       1
      ]
     }
-   }
+   },
+   "pool": "delay"
   },
   {
    "ordinal": 3,
@@ -459,7 +503,8 @@
       1
      ]
     }
-   }
+   },
+   "pool": "path"
   },
   {
    "ordinal": 4,
@@ -629,7 +674,8 @@
       0
      ]
     }
-   }
+   },
+   "pool": "flip-flop"
   },
   {
    "ordinal": 5,
@@ -802,11 +848,12 @@
       0
      ]
     }
-   }
+   },
+   "pool": "clk-to-q"
   },
   {
    "ordinal": 6,
-   "prompt": "Tune each clock as fast as it will go without breaking the adder.\nEvery tick, a value leaves one register and has to reach the next before the clock ticks again. The gold pipeline registers cut that trip in two. Work out each trip, set both clocks with − and +, then press Race. Every race is a try.",
+   "prompt": "Tune each clock as fast as it will go without breaking the adder.\nEvery tick, a value leaves one register and has to reach the next before the clock ticks again. The gold pipeline registers cut that trip in two.",
    "code_snippet": null,
    "hint": "Add up the trip: one clk-to-q delay to leave the register, then every adder on the longest way to the next register. Without the gold registers that is two adders; with them, one.",
    "explanation": "Without the gold registers a value crosses two adders between registers: 20 + 480 + 480 = 980 ps. The gold pipeline registers cut the longest trip to one adder, 20 + 480 = 500 ps, so the clock can tick almost twice as fast. Each sum now takes two ticks, but a new one can start on every tick.",
@@ -1020,7 +1067,8 @@
      "980",
      "500"
     ]
-   }
+   },
+   "pool": "clock"
   },
   {
    "ordinal": 7,
@@ -1212,11 +1260,12 @@
      "1",
      "2"
     ]
-   }
+   },
+   "pool": "overlap"
   },
   {
    "ordinal": 8,
-   "prompt": "Send the lecture's five instructions down the five-stage pipeline, then tune both clocks.\nClick the cycle where each instruction is fetched (IF). A single-cycle CPU does a whole instruction in one tick; the pipeline does one stage per tick. Every race is a try.",
+   "prompt": "Send the lecture's five instructions down the five-stage pipeline, then tune both clocks.\nClick the cycle where each instruction is fetched (IF). A single-cycle CPU does a whole instruction in one tick; the pipeline does one stage per tick.",
    "code_snippet": null,
    "hint": "Fetch a new instruction every cycle, starting in cycle 1. For the clocks: the slowest instruction, lw, uses all five stages, and the slowest single stage takes 200 ps. Each trip also starts with the 20 ps clk-to-q delay.",
    "explanation": "Single-cycle, every tick has to be long enough for lw to cross all five stages: 20 + 800 = 820 ps. Pipelined, a tick only covers the slowest stage: 20 + 200 = 220 ps. One instruction alone is slower on the pipeline (5 x 220 = 1100 ps), but five finish in 9 ticks, 9 x 220 = 1980 ps, against 5 x 820 = 4100 ps: about twice as fast.",
@@ -1429,11 +1478,12 @@
      "820",
      "220"
     ]
-   }
+   },
+   "pool": "five-stage"
   },
   {
    "ordinal": 9,
-   "prompt": "Stall this program so no line reads a register before it is written.\nNo forwarding here: a value written in W can be read in D in that same cycle, and no earlier. Press + to hold a line in D one more cycle (the lines behind it wait too). Use as few stalls as you can, then Run it.",
+   "prompt": "Stall this program so no line reads a register before it is written.\nNo forwarding here: a value written in W can be read in D in that same cycle, and no earlier. Use as few stalls as you can.",
    "code_snippet": null,
    "hint": "Look for a line that reads a register the line just above it writes. Hold it in D until its D sits under that line's W.",
    "explanation": "or writes x4 in W in cycle 6, but and would decode in cycle 4, so it waits in D for two cycles. sub also reads x4, but once and has waited, sub decodes after the write anyway. Two stalls stretch the run from 9 cycles to 11, still far ahead of the single-cycle CPU.",
@@ -1477,11 +1527,12 @@
      "0",
      "0"
     ]
-   }
+   },
+   "pool": "stalls"
   },
   {
    "ordinal": 10,
-   "prompt": "Now with forwarding: stall only where no wire can help.\nA result is handed straight into X from a line ahead, so most values arrive without waiting. But a load's word isn't out of memory until the end of M. Press + to hold a line in D one more cycle (the lines behind it wait too). Use as few stalls as you can, then Run it.",
+   "prompt": "Now with forwarding: stall only where no wire can help.\nA result is handed straight into X from a line ahead, so most values arrive without waiting. But a load's word isn't out of memory until the end of M. Use as few stalls as you can.",
    "code_snippet": null,
    "hint": "Only a line that reads what a load right above it loaded has to wait. A loaded word reaches the line two below it in time.",
    "explanation": "Two lines read what the load right above them loaded, so each waits a cycle in D: add x6 and add x14. and x12 reads x9 from a load two lines up, so it needs no stall. Without forwarding, this program would need 7 stalls.",
@@ -1529,6 +1580,2900 @@
      "1",
      "0",
      "0",
+     "0",
+     "0",
+     "1"
+    ]
+   },
+   "pool": "forwarding"
+  },
+  {
+   "ordinal": 11,
+   "pool": "logic",
+   "prompt": "Draw D, E, and Y as A, B, and C change.\nNo delays yet: each gate's output follows its inputs at once.",
+   "code_snippet": null,
+   "hint": "D is 1 while A and B differ. E is the opposite of C. Y is 1 only while D and E are both 1. Look at every moment an input changes, even when two change together.",
+   "explanation": "The XOR gate's output D is 1 while A and B differ: from 20 ps until B falls at 80 ps. At 60 ps A falls just as B rises, so they still differ and D stays 1. The NOT gate flips C, so E is 1 from 40 to 100 ps. Y is 1 only while both D and E are: from 40 to 80 ps.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 12,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "D",
+       "op": "xor",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1.2,
+        0.5
+       ]
+      },
+      {
+       "out": "E",
+       "op": "not",
+       "in": [
+        "C"
+       ],
+       "at": [
+        1.2,
+        2
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "and",
+       "in": [
+        "D",
+        "E"
+       ],
+       "at": [
+        2.6,
+        1.25
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       0
+      ],
+      [
+       2,
+       1
+      ],
+      [
+       6,
+       0
+      ]
+     ],
+     "B": [
+      [
+       0,
+       0
+      ],
+      [
+       6,
+       1
+      ],
+      [
+       8,
+       0
+      ]
+     ],
+     "C": [
+      [
+       0,
+       1
+      ],
+      [
+       4,
+       0
+      ],
+      [
+       10,
+       1
+      ]
+     ]
+    },
+    "draw": [
+     "D",
+     "E",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "D": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "E": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0
+     ],
+     "Y": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 12,
+   "pool": "logic",
+   "prompt": "Draw D, E, and Y, where B feeds two gates.\nNo delays yet: each gate's output follows its inputs at once.",
+   "code_snippet": null,
+   "hint": "D is 1 only while A and B are both 0. E is 1 only while B and C are both 1. Y is 1 whenever D or E is 1.",
+   "explanation": "The NOR gate's output D is 1 only while A and B are both 0: from 20 to 50 ps. The AND gate's output E is 1 while B and C are both 1: from 50 to 80 ps. B feeds both gates, so when it rises at 50 ps, D falls at the same moment E rises, and Y, which is 1 while either is, stays 1 from 20 to 80 ps.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 11,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "D",
+       "op": "nor",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1.2,
+        0.5
+       ]
+      },
+      {
+       "out": "E",
+       "op": "and",
+       "in": [
+        "B",
+        "C"
+       ],
+       "at": [
+        1.2,
+        1.5
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "or",
+       "in": [
+        "D",
+        "E"
+       ],
+       "at": [
+        2.6,
+        1
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       1
+      ],
+      [
+       2,
+       0
+      ]
+     ],
+     "B": [
+      [
+       0,
+       0
+      ],
+      [
+       5,
+       1
+      ]
+     ],
+     "C": [
+      [
+       0,
+       1
+      ],
+      [
+       8,
+       0
+      ]
+     ]
+    },
+    "draw": [
+     "D",
+     "E",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "D": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "E": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ],
+     "Y": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 13,
+   "pool": "delay",
+   "prompt": "Draw D and Y, now that each gate takes time.\nA gate's output changes one propagation delay after its input: 30 ps for AND, 10 ps for NOR. The circuit starts settled.",
+   "code_snippet": null,
+   "hint": "D changes 30 ps after A does, while B holds the AND open. Y responds 10 ps after C changes, and 10 ps after D changes.",
+   "explanation": "Delays add up along a path. C reaches Y through the NOR gate alone, so when C falls at 20 ps, Y rises at 30 ps. A rises at 50 ps, D rises at 80 ps, and Y falls at 90 ps: 40 ps from A to Y, through both gates.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 12,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "D",
+       "op": "and",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1,
+        0.5
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "nor",
+       "in": [
+        "D",
+        "C"
+       ],
+       "at": [
+        2.2,
+        1.25
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "delays": {
+     "and": 3,
+     "nor": 1
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       0
+      ],
+      [
+       5,
+       1
+      ]
+     ],
+     "B": [
+      [
+       0,
+       1
+      ]
+     ],
+     "C": [
+      [
+       0,
+       1
+      ],
+      [
+       2,
+       0
+      ]
+     ]
+    },
+    "draw": [
+     "D",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "D": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1
+     ],
+     "Y": [
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 14,
+   "pool": "delay",
+   "prompt": "Draw C and Y as each change passes two gates.\nA gate's output changes one propagation delay after its input: 20 ps for XOR, 10 ps for NOT. The circuit starts settled.",
+   "code_snippet": null,
+   "hint": "C changes 20 ps after A or B does, and is 1 while they differ. Y is the opposite of C, 10 ps later.",
+   "explanation": "Delays add up along a path, and here every change passes both gates: 20 ps through the XOR, then 10 ps through the NOT, 30 ps in all. A rises at 20 ps, so C rises at 40 ps and Y falls at 50 ps. B rises at 70 ps and A and B match again, so C falls at 90 ps and Y rises at 100 ps.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 12,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "C",
+       "op": "xor",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1,
+        0.5
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "not",
+       "in": [
+        "C"
+       ],
+       "at": [
+        2.2,
+        0.5
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "delays": {
+     "xor": 2,
+     "not": 1
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       0
+      ],
+      [
+       2,
+       1
+      ]
+     ],
+     "B": [
+      [
+       0,
+       0
+      ],
+      [
+       7,
+       1
+      ]
+     ]
+    },
+    "draw": [
+     "C",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "C": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ],
+     "Y": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 15,
+   "pool": "path",
+   "prompt": "Draw D, E, and Y along a chain of three gates.\nNAND takes 20 ps, NOT 10 ps, and NOR 30 ps. A change at A has to pass all three gates before Y sees it.",
+   "code_snippet": null,
+   "hint": "Follow each change one gate at a time: A to D (20 ps), D to E (10 ps), E to Y (30 ps). C reaches Y through the NOR gate alone.",
+   "explanation": "C only passes the NOR gate, so C falling at 20 ps lifts Y at 50 ps. The path from A to Y is 20 + 10 + 30 = 60 ps: A rising at 50 ps drops D at 70 ps, lifts E at 80 ps, and pulls Y down at 110 ps. The longest path through a circuit is its critical path: it sets how long you must wait for the output.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 14,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "D",
+       "op": "nand",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1,
+        0.5
+       ]
+      },
+      {
+       "out": "E",
+       "op": "not",
+       "in": [
+        "D"
+       ],
+       "at": [
+        2.2,
+        0.5
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "nor",
+       "in": [
+        "E",
+        "C"
+       ],
+       "at": [
+        3.4,
+        1.25
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "delays": {
+     "nand": 2,
+     "not": 1,
+     "nor": 3
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       0
+      ],
+      [
+       5,
+       1
+      ]
+     ],
+     "B": [
+      [
+       0,
+       1
+      ]
+     ],
+     "C": [
+      [
+       0,
+       1
+      ],
+      [
+       2,
+       0
+      ]
+     ]
+    },
+    "draw": [
+     "D",
+     "E",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "D": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "E": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "Y": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 16,
+   "pool": "path",
+   "prompt": "Draw D, E, and Y as each change ripples through.\nXOR and AND take 20 ps each, and NOT takes 10 ps. A change at A has to pass all three gates before Y sees it.",
+   "code_snippet": null,
+   "hint": "Follow each change one gate at a time: A to D (20 ps), D to E (20 ps), E to Y (10 ps). C joins at the AND gate, so it skips the XOR.",
+   "explanation": "The path from A to Y is 20 + 20 + 10 = 50 ps: A rises at 20 ps, D at 40 ps, E at 60 ps, and Y falls at 70 ps. C skips the XOR, so C falling at 90 ps drops E at 110 ps and lifts Y at 120 ps, 30 ps later. The longest path, from A or B to Y, is the critical path: it sets how long you must wait for the output.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ps",
+    "tick": 10,
+    "ticks": 14,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "D",
+       "op": "xor",
+       "in": [
+        "A",
+        "B"
+       ],
+       "at": [
+        1,
+        0.5
+       ]
+      },
+      {
+       "out": "E",
+       "op": "and",
+       "in": [
+        "D",
+        "C"
+       ],
+       "at": [
+        2.2,
+        1.25
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "not",
+       "in": [
+        "E"
+       ],
+       "at": [
+        3.4,
+        1.25
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "delays": {
+     "xor": 2,
+     "and": 2,
+     "not": 1
+    },
+    "signals": {
+     "A": [
+      [
+       0,
+       0
+      ],
+      [
+       2,
+       1
+      ]
+     ],
+     "B": [
+      [
+       0,
+       0
+      ]
+     ],
+     "C": [
+      [
+       0,
+       1
+      ],
+      [
+       9,
+       0
+      ]
+     ]
+    },
+    "draw": [
+     "D",
+     "E",
+     "Y"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "D": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "E": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ],
+     "Y": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 17,
+   "pool": "flip-flop",
+   "prompt": "Draw Q for this flip-flop as D pulses between the clock edges.\nQ takes the value of D only at a rising edge of the clock (the dashed lines), and holds it until the next one.",
+   "code_snippet": null,
+   "hint": "Ignore D between edges, however busy it gets. At each rising edge (2, 6, 10 ns, and so on), copy what D is at that moment.",
+   "explanation": "Q rises at 2 ns, falls at 6 ns, rises at 14 ns, falls at 22 ns. D's pulse from 7 to 9 ns falls between two edges, so Q never sees it; the short pulse from 13.5 to 14.5 ns is there at the 14 ns edge, so Q takes it and holds 1 until the edge at 22 ns. Only what D is at a rising edge matters.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ns",
+    "tick": 0.5,
+    "ticks": 56,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "D",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "clk",
+       "at": [
+        0,
+        1
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "Q",
+       "op": "dff",
+       "in": [
+        "D"
+       ],
+       "at": [
+        1.4,
+        0.5
+       ],
+       "clk": "clk"
+      }
+     ],
+     "outputs": [
+      "Q"
+     ]
+    },
+    "clock": {
+     "name": "clk",
+     "period": 8,
+     "rise": 4
+    },
+    "signals": {
+     "D": [
+      [
+       0,
+       0
+      ],
+      [
+       3,
+       1
+      ],
+      [
+       10,
+       0
+      ],
+      [
+       14,
+       1
+      ],
+      [
+       18,
+       0
+      ],
+      [
+       27,
+       1
+      ],
+      [
+       29,
+       0
+      ],
+      [
+       34,
+       1
+      ],
+      [
+       41,
+       0
+      ],
+      [
+       46,
+       1
+      ],
+      [
+       49,
+       0
+      ]
+     ]
+    },
+    "start": {
+     "Q": 0
+    },
+    "draw": [
+     "Q"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "Q": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 18,
+   "pool": "flip-flop",
+   "prompt": "Draw Q for this flip-flop, whose clock rises at 1, 5, 9 ns, and so on.\nQ takes the value of D only at a rising edge of the clock (the dashed lines), and holds it until the next one.",
+   "code_snippet": null,
+   "hint": "Look only at the dashed lines. At each one, read D and carry that value across to the next dashed line.",
+   "explanation": "Q rises at 1 ns, falls at 9 ns, rises at 17 ns, falls at 21 ns. Between the edges D dips and pulses (at 2.5, 10.5, and 22.5 ns), but none of that is there at a rising edge, so Q ignores it. A flip-flop turns a busy signal into one steady value per clock cycle.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ns",
+    "tick": 0.5,
+    "ticks": 56,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "D",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "clk",
+       "at": [
+        0,
+        1
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "Q",
+       "op": "dff",
+       "in": [
+        "D"
+       ],
+       "at": [
+        1.4,
+        0.5
+       ],
+       "clk": "clk"
+      }
+     ],
+     "outputs": [
+      "Q"
+     ]
+    },
+    "clock": {
+     "name": "clk",
+     "period": 8,
+     "rise": 2
+    },
+    "signals": {
+     "D": [
+      [
+       0,
+       1
+      ],
+      [
+       5,
+       0
+      ],
+      [
+       7,
+       1
+      ],
+      [
+       13,
+       0
+      ],
+      [
+       21,
+       1
+      ],
+      [
+       23,
+       0
+      ],
+      [
+       30,
+       1
+      ],
+      [
+       37,
+       0
+      ],
+      [
+       45,
+       1
+      ],
+      [
+       47,
+       0
+      ]
+     ]
+    },
+    "start": {
+     "Q": 0
+    },
+    "draw": [
+     "Q"
+    ]
+   },
+   "answer": {
+    "waves": {
+     "Q": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 19,
+   "pool": "clk-to-q",
+   "prompt": "Draw Q with a clk-to-q delay of 0.5 ns.\nQ still takes D at each rising edge, but the new value only shows on Q half a nanosecond later.",
+   "code_snippet": null,
+   "hint": "Do it in two steps: find the value D has at each rising edge, then draw each change on Q 0.5 ns after its edge.",
+   "explanation": "Q rises at 2.5 ns, falls at 14.5 ns, rises at 18.5 ns, falls at 22.5 ns: each change lands 0.5 ns after the rising edge that caused it. The delay doesn't change what Q takes, only when it shows. Anything reading Q gets 0.5 ns less of the clock period to work with.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ns",
+    "tick": 0.5,
+    "ticks": 56,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "D",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "clk",
+       "at": [
+        0,
+        1
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "Q",
+       "op": "dff",
+       "in": [
+        "D"
+       ],
+       "at": [
+        1.4,
+        0.5
+       ],
+       "clk": "clk"
+      }
+     ],
+     "outputs": [
+      "Q"
+     ]
+    },
+    "clock": {
+     "name": "clk",
+     "period": 8,
+     "rise": 4
+    },
+    "signals": {
+     "D": [
+      [
+       0,
+       1
+      ],
+      [
+       6,
+       0
+      ],
+      [
+       9,
+       1
+      ],
+      [
+       15,
+       0
+      ],
+      [
+       19,
+       1
+      ],
+      [
+       25,
+       0
+      ],
+      [
+       33,
+       1
+      ],
+      [
+       38,
+       0
+      ],
+      [
+       45,
+       1
+      ],
+      [
+       50,
+       0
+      ]
+     ]
+    },
+    "start": {
+     "Q": 0
+    },
+    "draw": [
+     "Q"
+    ],
+    "delays": {
+     "dff": 1
+    }
+   },
+   "answer": {
+    "waves": {
+     "Q": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 20,
+   "pool": "clk-to-q",
+   "prompt": "Draw Q with a clk-to-q delay of 1.5 ns.\nThe clock rises at 1, 5, 9 ns, and so on. Each new value of D shows on Q 1.5 ns after the edge that took it.",
+   "code_snippet": null,
+   "hint": "Read D at each dashed line first. Q only changes where that value differs from Q's old one, and each change lands 1.5 ns after its edge.",
+   "explanation": "Q rises at 14.5 ns, falls at 18.5 ns, rises at 22.5 ns, falls at 26.5 ns. D is 0 at the first three edges, so Q stays 0 until the edge at 13 ns takes a 1, which shows at 14.5 ns. A long clk-to-q delay eats into every clock period, which is why it counts in the minimum clock period.",
+   "payload": {
+    "kind": "wave",
+    "unit": "ns",
+    "tick": 0.5,
+    "ticks": 56,
+    "circuit": {
+     "labels": true,
+     "inputs": [
+      {
+       "name": "D",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "clk",
+       "at": [
+        0,
+        1
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "Q",
+       "op": "dff",
+       "in": [
+        "D"
+       ],
+       "at": [
+        1.4,
+        0.5
+       ],
+       "clk": "clk"
+      }
+     ],
+     "outputs": [
+      "Q"
+     ]
+    },
+    "clock": {
+     "name": "clk",
+     "period": 8,
+     "rise": 2
+    },
+    "signals": {
+     "D": [
+      [
+       0,
+       0
+      ],
+      [
+       5,
+       1
+      ],
+      [
+       9,
+       0
+      ],
+      [
+       14,
+       1
+      ],
+      [
+       17,
+       0
+      ],
+      [
+       22,
+       1
+      ],
+      [
+       31,
+       0
+      ],
+      [
+       39,
+       1
+      ],
+      [
+       43,
+       0
+      ]
+     ]
+    },
+    "start": {
+     "Q": 0
+    },
+    "draw": [
+     "Q"
+    ],
+    "delays": {
+     "dff": 3
+    }
+   },
+   "answer": {
+    "waves": {
+     "Q": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ordinal": 21,
+   "pool": "clock",
+   "prompt": "Tune each clock for this multiply-add, Y = A x B + C, as fast as it will go.\nEvery tick, a value leaves one register and has to reach the next before the clock ticks again. The gold pipeline registers cut the trip between the multiplier and the adder.",
+   "code_snippet": null,
+   "hint": "A trip is one clk-to-q delay plus everything between two registers. Without the gold registers that is the multiplier and the adder; with them, the longer of the two pieces.",
+   "explanation": "Without the gold registers a value crosses the multiplier and the adder in one tick: 20 + 600 + 200 = 820 ps. With them the longest trip is the multiplier alone, 20 + 600 = 620 ps. The stages are unequal, so pipelining gains less here: the clock can only be as fast as the slowest stage allows.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "rA",
+       "op": "reg",
+       "in": [
+        "A"
+       ],
+       "at": [
+        1,
+        0
+       ]
+      },
+      {
+       "out": "rB",
+       "op": "reg",
+       "in": [
+        "B"
+       ],
+       "at": [
+        1,
+        1
+       ]
+      },
+      {
+       "out": "rC",
+       "op": "reg",
+       "in": [
+        "C"
+       ],
+       "at": [
+        1,
+        2
+       ]
+      },
+      {
+       "out": "m",
+       "op": "mul",
+       "in": [
+        "rA",
+        "rB"
+       ],
+       "at": [
+        2,
+        0.5
+       ]
+      },
+      {
+       "out": "pm",
+       "op": "reg",
+       "in": [
+        "m"
+       ],
+       "at": [
+        3,
+        0.5
+       ],
+       "gold": true
+      },
+      {
+       "out": "pc",
+       "op": "reg",
+       "in": [
+        "rC"
+       ],
+       "at": [
+        3,
+        2
+       ],
+       "gold": true
+      },
+      {
+       "out": "s",
+       "op": "add",
+       "in": [
+        "pm",
+        "pc"
+       ],
+       "at": [
+        4,
+        1.25
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "reg",
+       "in": [
+        "s"
+       ],
+       "at": [
+        5,
+        1.25
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "facts": [
+     "clk-to-q delay = 20 ps  ·  multiplier = 600 ps  ·  adder = 200 ps"
+    ],
+    "clocks": [
+     {
+      "name": "Without the gold registers",
+      "gold": false,
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "multiplier",
+        600
+       ],
+       [
+        "adder",
+        200
+       ]
+      ],
+      "choices": [
+       600,
+       800,
+       820,
+       1000
+      ]
+     },
+     {
+      "name": "With the gold registers",
+      "gold": true,
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "multiplier",
+        600
+       ]
+      ],
+      "choices": [
+       220,
+       600,
+       620,
+       820
+      ]
+     }
+    ]
+   },
+   "answer": {
+    "cells": [
+     "820",
+     "620"
+    ]
+   }
+  },
+  {
+   "ordinal": 22,
+   "pool": "clock",
+   "prompt": "Tune each clock for this chain of three adders, Y = ((A + B) + C) + D.\nThe gold pipeline registers sit after the second adder, so the two stages are not the same length.",
+   "code_snippet": null,
+   "hint": "Without the gold registers a value crosses all three adders between registers. With them, find the longer stage: is it the part before the gold registers or after?",
+   "explanation": "Without the gold registers the trip crosses three adders: 20 + 300 + 300 + 300 = 920 ps. With them, stage 1 has two adders (20 + 600 = 620 ps) and stage 2 only one, so the clock must fit the longer one: 620 ps. Cutting a circuit into equal stages gives the fastest clock.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [
+      {
+       "name": "A",
+       "at": [
+        0,
+        0
+       ]
+      },
+      {
+       "name": "B",
+       "at": [
+        0,
+        1
+       ]
+      },
+      {
+       "name": "C",
+       "at": [
+        0,
+        2
+       ]
+      },
+      {
+       "name": "D",
+       "at": [
+        0,
+        3
+       ]
+      }
+     ],
+     "gates": [
+      {
+       "out": "rA",
+       "op": "reg",
+       "in": [
+        "A"
+       ],
+       "at": [
+        1,
+        0
+       ]
+      },
+      {
+       "out": "rB",
+       "op": "reg",
+       "in": [
+        "B"
+       ],
+       "at": [
+        1,
+        1
+       ]
+      },
+      {
+       "out": "rC",
+       "op": "reg",
+       "in": [
+        "C"
+       ],
+       "at": [
+        1,
+        2
+       ]
+      },
+      {
+       "out": "rD",
+       "op": "reg",
+       "in": [
+        "D"
+       ],
+       "at": [
+        1,
+        3
+       ]
+      },
+      {
+       "out": "s1",
+       "op": "add",
+       "in": [
+        "rA",
+        "rB"
+       ],
+       "at": [
+        2,
+        0.5
+       ]
+      },
+      {
+       "out": "s2",
+       "op": "add",
+       "in": [
+        "s1",
+        "rC"
+       ],
+       "at": [
+        3,
+        1.25
+       ]
+      },
+      {
+       "out": "p1",
+       "op": "reg",
+       "in": [
+        "s2"
+       ],
+       "at": [
+        4,
+        1.25
+       ],
+       "gold": true
+      },
+      {
+       "out": "p2",
+       "op": "reg",
+       "in": [
+        "rD"
+       ],
+       "at": [
+        4,
+        3
+       ],
+       "gold": true
+      },
+      {
+       "out": "s3",
+       "op": "add",
+       "in": [
+        "p1",
+        "p2"
+       ],
+       "at": [
+        5,
+        2.1
+       ]
+      },
+      {
+       "out": "Y",
+       "op": "reg",
+       "in": [
+        "s3"
+       ],
+       "at": [
+        6,
+        2.1
+       ]
+      }
+     ],
+     "outputs": [
+      "Y"
+     ]
+    },
+    "facts": [
+     "clk-to-q delay = 20 ps  ·  adder delay = 300 ps"
+    ],
+    "clocks": [
+     {
+      "name": "Without the gold registers",
+      "gold": false,
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "adder",
+        300
+       ],
+       [
+        "adder",
+        300
+       ],
+       [
+        "adder",
+        300
+       ]
+      ],
+      "choices": [
+       620,
+       900,
+       920,
+       1200
+      ]
+     },
+     {
+      "name": "With the gold registers",
+      "gold": true,
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "adder",
+        300
+       ],
+       [
+        "adder",
+        300
+       ]
+      ],
+      "choices": [
+       320,
+       600,
+       620,
+       920
+      ]
+     }
+    ]
+   },
+   "answer": {
+    "cells": [
+     "920",
+     "620"
+    ]
+   }
+  },
+  {
+   "ordinal": 23,
+   "pool": "overlap",
+   "prompt": "Run four products through this three-stage multiplier, one right behind the other.\nEach product spends one tick in each stage, M1, M2, then M3. A stage holds one product at a time. Click the cycle each product starts in, as early as it can.",
+   "code_snippet": null,
+   "hint": "Product 2 can start M1 the moment product 1 moves on to M2. After that, every product follows one cycle behind the one before it.",
+   "explanation": "Once the pipeline is full, all three stages work at once, each on a different product, and one product finishes every tick. One product still takes 3 ticks (its latency), but four take 3 + 3 = 6 cycles instead of 4 x 3 = 12.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [],
+     "gates": [
+      {
+       "out": "M1",
+       "op": "box",
+       "in": [],
+       "at": [
+        0,
+        0
+       ],
+       "label": "M1\nstage 1"
+      },
+      {
+       "out": "g0",
+       "op": "reg",
+       "in": [
+        "M1"
+       ],
+       "at": [
+        1,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "M2",
+       "op": "box",
+       "in": [
+        "g0"
+       ],
+       "at": [
+        2,
+        0
+       ],
+       "label": "M2\nstage 2"
+      },
+      {
+       "out": "g1",
+       "op": "reg",
+       "in": [
+        "M2"
+       ],
+       "at": [
+        3,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "M3",
+       "op": "box",
+       "in": [
+        "g1"
+       ],
+       "at": [
+        4,
+        0
+       ],
+       "label": "M3\nstage 3"
+      }
+     ],
+     "outputs": []
+    },
+    "chart": {
+     "rows": [
+      "product 1",
+      "product 2",
+      "product 3",
+      "product 4"
+     ],
+     "stages": [
+      "M1",
+      "M2",
+      "M3"
+     ],
+     "cycles": 8,
+     "starts": [
+      0,
+      1,
+      2,
+      3
+     ]
+    },
+    "facts": [
+     "M1, M2, M3 = the three stages, with pipeline registers between them",
+     "Two products can never be in the same stage in the same cycle."
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "1",
+     "2",
+     "3"
+    ]
+   }
+  },
+  {
+   "ordinal": 24,
+   "pool": "overlap",
+   "prompt": "Do three loads of laundry the pipelined way.\nEach load spends one hour in the washer, one in the dryer, then one on the folding table. Each holds one load at a time. Click the hour each load goes in the washer, as early as it can.",
+   "code_snippet": null,
+   "hint": "As soon as load 1 moves to the dryer, the washer is free for load 2.",
+   "explanation": "This is the lectures' laundry picture of pipelining: the washer, dryer, and table all work at once on different loads. One load still takes 3 hours, but three loads take 5 hours instead of 9, and every extra load adds just 1 hour.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [],
+     "gates": [
+      {
+       "out": "Wash",
+       "op": "box",
+       "in": [],
+       "at": [
+        0,
+        0
+       ],
+       "label": "Wash\n1 hour"
+      },
+      {
+       "out": "g0",
+       "op": "reg",
+       "in": [
+        "Wash"
+       ],
+       "at": [
+        1,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "Dry",
+       "op": "box",
+       "in": [
+        "g0"
+       ],
+       "at": [
+        2,
+        0
+       ],
+       "label": "Dry\n1 hour"
+      },
+      {
+       "out": "g1",
+       "op": "reg",
+       "in": [
+        "Dry"
+       ],
+       "at": [
+        3,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "Fold",
+       "op": "box",
+       "in": [
+        "g1"
+       ],
+       "at": [
+        4,
+        0
+       ],
+       "label": "Fold\n1 hour"
+      }
+     ],
+     "outputs": []
+    },
+    "chart": {
+     "rows": [
+      "load 1",
+      "load 2",
+      "load 3"
+     ],
+     "stages": [
+      "Wash",
+      "Dry",
+      "Fold"
+     ],
+     "cycles": 7,
+     "starts": [
+      0,
+      1,
+      2
+     ]
+    },
+    "facts": [
+     "One column of the diagram is one hour.",
+     "The washer, dryer, and table each hold one load at a time."
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "1",
+     "2"
+    ]
+   }
+  },
+  {
+   "ordinal": 25,
+   "pool": "five-stage",
+   "prompt": "Send five instructions down a pipeline with slow fetch and memory, then tune both clocks.\nClick the cycle where each instruction is fetched (IF). A single-cycle CPU does a whole instruction in one tick; the pipeline does one stage per tick.",
+   "code_snippet": null,
+   "hint": "Fetch a new instruction every cycle, starting in cycle 1. The single-cycle clock must fit lw, which uses every stage; the pipelined clock only the slowest stage. Each trip also starts with the 20 ps clk-to-q delay.",
+   "explanation": "Single-cycle, every tick has to fit lw through all five stages: 20 + 950 = 970 ps. Pipelined, a tick covers the slowest stage, IF or MEM: 20 + 250 = 270 ps. Five instructions take 9 pipelined ticks against 5 single-cycle ones, and each pipelined tick is far shorter.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [],
+     "gates": [
+      {
+       "out": "IF",
+       "op": "box",
+       "in": [],
+       "at": [
+        0,
+        0
+       ],
+       "label": "IF\n250 ps"
+      },
+      {
+       "out": "g0",
+       "op": "reg",
+       "in": [
+        "IF"
+       ],
+       "at": [
+        1,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "ID",
+       "op": "box",
+       "in": [
+        "g0"
+       ],
+       "at": [
+        2,
+        0
+       ],
+       "label": "ID\n150 ps"
+      },
+      {
+       "out": "g1",
+       "op": "reg",
+       "in": [
+        "ID"
+       ],
+       "at": [
+        3,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "EX",
+       "op": "box",
+       "in": [
+        "g1"
+       ],
+       "at": [
+        4,
+        0
+       ],
+       "label": "EX\n200 ps"
+      },
+      {
+       "out": "g2",
+       "op": "reg",
+       "in": [
+        "EX"
+       ],
+       "at": [
+        5,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "MEM",
+       "op": "box",
+       "in": [
+        "g2"
+       ],
+       "at": [
+        6,
+        0
+       ],
+       "label": "MEM\n250 ps"
+      },
+      {
+       "out": "g3",
+       "op": "reg",
+       "in": [
+        "MEM"
+       ],
+       "at": [
+        7,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "WB",
+       "op": "box",
+       "in": [
+        "g3"
+       ],
+       "at": [
+        8,
+        0
+       ],
+       "label": "WB\n100 ps"
+      }
+     ],
+     "outputs": []
+    },
+    "chart": {
+     "rows": [
+      "lw x5, 0(x10)",
+      "add x6, x7, x8",
+      "sw x9, 4(x10)",
+      "sub x11, x12, x13",
+      "or x14, x15, x16"
+     ],
+     "stages": [
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB"
+     ],
+     "cycles": 10,
+     "starts": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ]
+    },
+    "facts": [
+     "clk-to-q delay = 20 ps  ·  lw uses every stage"
+    ],
+    "clocks": [
+     {
+      "name": "Single-cycle: a whole instruction per tick",
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "IF",
+        250
+       ],
+       [
+        "ID",
+        150
+       ],
+       [
+        "EX",
+        200
+       ],
+       [
+        "MEM",
+        250
+       ],
+       [
+        "WB",
+        100
+       ]
+      ],
+      "choices": [
+       770,
+       950,
+       970,
+       1200
+      ]
+     },
+     {
+      "name": "Pipelined: one stage per tick",
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "slowest stage",
+        250
+       ]
+      ],
+      "choices": [
+       170,
+       250,
+       270,
+       970
+      ]
+     }
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "1",
+     "2",
+     "3",
+     "4",
+     "970",
+     "270"
+    ]
+   }
+  },
+  {
+   "ordinal": 26,
+   "pool": "five-stage",
+   "prompt": "Send five instructions down a pipeline with a slow EX stage, then tune both clocks.\nClick the cycle where each instruction is fetched (IF). A single-cycle CPU does a whole instruction in one tick; the pipeline does one stage per tick.",
+   "code_snippet": null,
+   "hint": "Fetch a new instruction every cycle, starting in cycle 1. For the clocks, add up every stage for the single-cycle CPU, and take only the slowest stage, EX, for the pipeline; both trips start with 20 ps of clk-to-q.",
+   "explanation": "Single-cycle, every tick has to fit lw through all five stages: 20 + 1000 = 1020 ps. Pipelined, a tick only covers the slowest stage, EX: 20 + 300 = 320 ps. One slow stage sets the pace for the whole pipeline, which is why designers try to balance the stages.",
+   "payload": {
+    "kind": "table",
+    "circuit": {
+     "labels": false,
+     "inputs": [],
+     "gates": [
+      {
+       "out": "IF",
+       "op": "box",
+       "in": [],
+       "at": [
+        0,
+        0
+       ],
+       "label": "IF\n200 ps"
+      },
+      {
+       "out": "g0",
+       "op": "reg",
+       "in": [
+        "IF"
+       ],
+       "at": [
+        1,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "ID",
+       "op": "box",
+       "in": [
+        "g0"
+       ],
+       "at": [
+        2,
+        0
+       ],
+       "label": "ID\n150 ps"
+      },
+      {
+       "out": "g1",
+       "op": "reg",
+       "in": [
+        "ID"
+       ],
+       "at": [
+        3,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "EX",
+       "op": "box",
+       "in": [
+        "g1"
+       ],
+       "at": [
+        4,
+        0
+       ],
+       "label": "EX\n300 ps"
+      },
+      {
+       "out": "g2",
+       "op": "reg",
+       "in": [
+        "EX"
+       ],
+       "at": [
+        5,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "MEM",
+       "op": "box",
+       "in": [
+        "g2"
+       ],
+       "at": [
+        6,
+        0
+       ],
+       "label": "MEM\n200 ps"
+      },
+      {
+       "out": "g3",
+       "op": "reg",
+       "in": [
+        "MEM"
+       ],
+       "at": [
+        7,
+        0
+       ],
+       "gold": true
+      },
+      {
+       "out": "WB",
+       "op": "box",
+       "in": [
+        "g3"
+       ],
+       "at": [
+        8,
+        0
+       ],
+       "label": "WB\n150 ps"
+      }
+     ],
+     "outputs": []
+    },
+    "chart": {
+     "rows": [
+      "add x5, x6, x7",
+      "lw x8, 8(x9)",
+      "or x10, x11, x12",
+      "sw x13, 0(x9)",
+      "and x14, x15, x16"
+     ],
+     "stages": [
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB"
+     ],
+     "cycles": 10,
+     "starts": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ]
+    },
+    "facts": [
+     "clk-to-q delay = 20 ps  ·  lw uses every stage"
+    ],
+    "clocks": [
+     {
+      "name": "Single-cycle: a whole instruction per tick",
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "IF",
+        200
+       ],
+       [
+        "ID",
+        150
+       ],
+       [
+        "EX",
+        300
+       ],
+       [
+        "MEM",
+        200
+       ],
+       [
+        "WB",
+        150
+       ]
+      ],
+      "choices": [
+       820,
+       1000,
+       1020,
+       1300
+      ]
+     },
+     {
+      "name": "Pipelined: one stage per tick",
+      "path": [
+       [
+        "clk-to-q",
+        20
+       ],
+       [
+        "slowest stage",
+        300
+       ]
+      ],
+      "choices": [
+       220,
+       300,
+       320,
+       1020
+      ]
+     }
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "1",
+     "2",
+     "3",
+     "4",
+     "1020",
+     "320"
+    ]
+   }
+  },
+  {
+   "ordinal": 27,
+   "pool": "stalls",
+   "prompt": "Stall this loop body so no line reads a register before it is written.\nNo forwarding here: a value written in W can be read in D in that same cycle, and no earlier. Use as few stalls as you can.",
+   "code_snippet": null,
+   "hint": "Find each line that reads a register written one or two lines above it, and hold that reader in D until its D sits under the writer's W. Run again after each fix: a stall moves the lines behind it too.",
+   "explanation": "addi writes x10 in W in cycle 5, but lw would decode in cycle 3, so lw waits in D for two cycles. add x12 reads x5 two lines below the load and waits one cycle, reading it in cycle 8 as lw writes it. That stall also lets sub read x11 in cycle 9, when addi x11 writes it. Three stalls stretch the run from 9 cycles to 12.",
+   "payload": {
+    "kind": "table",
+    "chart": {
+     "rows": [
+      "addi x10, x10, 4",
+      "lw x5, 0(x10)",
+      "addi x11, x11, 1",
+      "add x12, x12, x5",
+      "sub x13, x11, x14"
+     ],
+     "stages": [
+      "F",
+      "D",
+      "X",
+      "M",
+      "W"
+     ],
+     "cycles": 15,
+     "stalls": [
+      0,
+      2,
+      0,
+      1,
+      0
+     ]
+    },
+    "facts": [
+     "Run plays the program and draws an arrow for each value a line reads:",
+     "green = written in time  ·  red = read too early",
+     "Every stall costs the whole program a cycle."
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "2",
+     "0",
+     "1",
+     "0"
+    ]
+   }
+  },
+  {
+   "ordinal": 28,
+   "pool": "stalls",
+   "prompt": "Stall these two interleaved calculations so no line reads a register too early.\nNo forwarding here: a value written in W can be read in D in that same cycle, and no earlier. Use as few stalls as you can.",
+   "code_snippet": null,
+   "hint": "Every value here is read two lines below the line that writes it, so each read is one cycle early, not two. Hold the first red reader in D, then Run again to see which reads that stall fixed.",
+   "explanation": "and would read x5 in D in cycle 4, but add writes it in W in cycle 5, so and waits one cycle. That stall also moves or to cycle 6, when sub writes x6. xor then waits one cycle for x7, written in cycle 8, which carries add x14 to cycle 9, when or writes x8. Two stalls stretch the run from 10 cycles to 12.",
+   "payload": {
+    "kind": "table",
+    "chart": {
+     "rows": [
+      "add x5, x10, x11",
+      "sub x6, x10, x11",
+      "and x7, x5, x12",
+      "or x8, x6, x12",
+      "xor x9, x7, x13",
+      "add x14, x8, x13"
+     ],
+     "stages": [
+      "F",
+      "D",
+      "X",
+      "M",
+      "W"
+     ],
+     "cycles": 15,
+     "stalls": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0
+     ]
+    },
+    "facts": [
+     "Run plays the program and draws an arrow for each value a line reads:",
+     "green = written in time  ·  red = read too early",
+     "Every stall costs the whole program a cycle."
+    ]
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "0",
+     "1",
+     "0",
+     "1",
+     "0"
+    ]
+   }
+  },
+  {
+   "ordinal": 29,
+   "pool": "forwarding",
+   "prompt": "Stall this pointer chase only where forwarding can't help.\nA result is handed straight into X from a line ahead, so most values arrive without waiting. But a load's word isn't out of memory until the end of M. Use as few stalls as you can.",
+   "code_snippet": null,
+   "hint": "Only a line that reads what the load right above it loaded has to wait, even when it is a load itself. A loaded word reaches the line two below it in time, and an addi's result reaches the very next line.",
+   "explanation": "Two lines read what the load right above them loaded, so each waits a cycle in D: lw x6, whose address is x5, and add x9, which needs x8. lw x7 and lw x8 read a load two lines up, so they need no stall, and lw x5 gets x10 from addi at once. Without forwarding, this program would need 9 stalls.",
+   "payload": {
+    "kind": "table",
+    "chart": {
+     "rows": [
+      "addi x10, x10, 16",
+      "lw x5, 0(x10)",
+      "lw x6, 4(x5)",
+      "lw x7, 8(x5)",
+      "lw x8, 0(x6)",
+      "add x9, x7, x8",
+      "sw x9, 12(x5)"
+     ],
+     "stages": [
+      "F",
+      "D",
+      "X",
+      "M",
+      "W"
+     ],
+     "cycles": 15,
+     "stalls": [
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0
+     ],
+     "forwarding": true
+    },
+    "facts": [
+     "Run plays the program and draws an arrow for each value a line reads:",
+     "green = forwarded in time  ·  red = not ready yet",
+     "Every stall costs the whole program a cycle."
+    ],
+    "solved_note": "The forwarding mux picks where X gets each value, and its setting is now on each arrow: 10 = from EX/MEM (the writer is one cycle ahead, in M, like x9 into sw), 01 = from MEM/WB (the writer is in W, like x6 into lw x8), 00 = the register file (written back in time, like x5 into lw x7). ForwardA is the mux for a line's first source register, ForwardB for its second."
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "0",
+     "1",
+     "0",
+     "0",
+     "1",
+     "0"
+    ]
+   }
+  },
+  {
+   "ordinal": 30,
+   "pool": "forwarding",
+   "prompt": "Stall this array copy only where forwarding can't help.\nA result is handed straight into X from a line ahead, so most values arrive without waiting. But a load's word isn't out of memory until the end of M. Use as few stalls as you can.",
+   "code_snippet": null,
+   "hint": "Only a line that reads what the load right above it loaded has to wait. A store two lines below a load gets the word in time, and an addi's result reaches the very next line.",
+   "explanation": "add x7 and add x9 each read what the load right above them loaded, so each waits a cycle in D. Both stores read a word loaded two lines up, so they need no stall, and sw x5 takes x11 from addi the cycle after it is made. Without forwarding, this program would need 6 stalls.",
+   "payload": {
+    "kind": "table",
+    "chart": {
+     "rows": [
+      "lw x5, 0(x10)",
+      "addi x11, x10, 64",
+      "sw x5, 0(x11)",
+      "lw x6, 4(x10)",
+      "add x7, x6, x5",
+      "sw x6, 4(x11)",
+      "lw x8, 8(x10)",
+      "add x9, x8, x7"
+     ],
+     "stages": [
+      "F",
+      "D",
+      "X",
+      "M",
+      "W"
+     ],
+     "cycles": 16,
+     "stalls": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1
+     ],
+     "forwarding": true
+    },
+    "facts": [
+     "Run plays the program and draws an arrow for each value a line reads:",
+     "green = forwarded in time  ·  red = not ready yet",
+     "Every stall costs the whole program a cycle."
+    ],
+    "solved_note": "The forwarding mux picks where X gets each value, and its setting is now on each arrow: 10 = from EX/MEM (the writer is one cycle ahead, in M, like x11 into sw x5), 01 = from MEM/WB (the writer is in W, like x5 into that same sw), 00 = the register file (written back in time, like x6 into sw x6). ForwardA is the mux for a line's first source register, ForwardB for its second."
+   },
+   "answer": {
+    "cells": [
+     "0",
+     "0",
+     "0",
+     "0",
+     "1",
      "0",
      "0",
      "1"

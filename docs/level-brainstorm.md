@@ -78,7 +78,7 @@ Memory, addresses, `lw`/`sw`, arrays, comparisons, branches, loops, translation 
 
 **Implemented** as a bank of twenty rooms, lined up with Lecture 4 (loads,
 stores, accessing memory). Each run plays ten: the four tutorial rooms, then one
-memory, one branches, and one loops room drawn at random, both procedure rooms
+memory, one branches, and one loops room drawn without repeats, both procedure rooms
 (stack frames give students the most trouble), and the race.
 The draw is the level's `draw` rule in the database, so it can change without
 new code.
@@ -147,8 +147,13 @@ Procedures, `jal`/`jalr`, arguments and return values, calling convention, stack
 
 **Implemented** as a story of eight walkthroughs students follow along, lined up
 with Lectures 6 and 7 (procedures, the calling convention, stack frames,
-recursion). The rooms play in order, each building on the last, so the level
-doubles as a study tool to replay. (Its first design, a bank of
+recursion). The gates play in order, each building on the last, so the level
+doubles as a study tool to replay. Each of the eight gates has three versions
+(migration `0020`): the original room and two that teach the same idea with a
+different program, and often a different wrong move. A run draws one version of
+each gate (pools `call`, `way-back`, `keep-value`, `saved-registers`,
+`recursion`, `base-case`, `two-calls`, `race`), so a replay is a new set of
+programs. (Its first design, a bank of
 answer-the-question rooms (Frame Builder, Recursion Elevator, and Code Lawyer),
 was replaced; the code stays for runs started before the change.)
 
@@ -264,7 +269,10 @@ Timing analysis (waveform diagrams, propagation delay, flip-flops), pipelining
 a circuit, the five-stage pipeline, data hazards, stalls, forwarding, load-use
 hazards, and CPI.
 
-**Implemented** as the game's Level 4: ten rooms played in order, each one an
+**Implemented** as the game's Level 4: ten gates played in order. Each gate has
+three versions (migration `0020`); a run draws one of each (pools `logic`,
+`delay`, `path`, `flip-flop`, `clk-to-q`, `clock`, `overlap`, `five-stage`,
+`stalls`, `forwarding`). The table below lists each gate's original version, an
 example from the lecture slides or a question from the in-class practice sheets
 (Lectures 18, 20, 22, and 23). The first five are waveform diagrams: a circuit
 beside a timing grid with the inputs drawn, where the player draws each
@@ -309,9 +317,6 @@ uses, with each gate's truth table.
 
 Ideas not built yet:
 
-- **A bank with a draw:** more circuits and programs per idea, drawn like
-  Levels 1 and 2, so replays differ. `server/timing.py` simulates any circuit of
-  the supported gates, so a new waveform room is only a new payload.
 - **Setup and hold:** mark the window around a clock edge where D must not
   change, and find the fastest clock a path allows.
 - **Control hazards:** branches in the pipeline diagram, with flushed

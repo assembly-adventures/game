@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from . import test_gameplay
+from . import gameplay, test_gameplay
 from .call_stack import moments
 from .database import connect
 from .gameplay import learning_event, register_player
@@ -389,6 +389,12 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/leaderboard?level_id=1&week_offset=1").status_code, 422)
 
     def test_analytics_separates_initial_understanding_from_repeated_practice(self):
+        # Every run here plays the same eight rooms (the original version of each gate), so the
+        # same question comes back: the draw would otherwise hand out other versions first.
+        originals = lambda level, questions, *history: [question for question in questions if question["ordinal"] <= 8]
+        pinned = patch.object(gameplay, "draw", originals)
+        pinned.start()
+        self.addCleanup(pinned.stop)
         run = self.start(3)
         question = run["questions"][0]
         self.event(run, question, "walk_choice", moment=0, choice=1)

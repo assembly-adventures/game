@@ -110,7 +110,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	side.add_child(tools)
 	undo_button = _tool("Undo", undo, "Backspace")
 	restart_button = _tool("Restart", restart, "R")
-	hint_button = _tool("Hint", show_hint, "")
+	hint_button = _tool("Hint (−1★)", show_hint, "")
 	for tool in [undo_button, restart_button, hint_button]:
 		tools.add_child(tool)
 	hint_label = Style.hint_box(board_column, false)
@@ -191,7 +191,7 @@ func failed() -> void:
 		return
 	reset()
 	if fails >= 2 and not hint_used and not hint.is_empty():
-		hint_button.text = "Need a hint?"
+		hint_button.text = "Need a hint? (−1★)"
 		hint_button.modulate = Style.GOLD
 
 func reset() -> void:

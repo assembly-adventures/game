@@ -15,6 +15,7 @@ from server.timing import clock, edges, level, simulate, table_keys, tidy
 BANK = json.loads((Path(__file__).parents[1] / "levels/level_4/guest_rooms.json").read_text())
 ROOMS = BANK["rooms"]
 ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
+POOLS = ["logic", "delay", "path", "flip-flop", "clk-to-q", "clock", "overlap", "five-stage", "stalls", "forwarding"]
 # One winning answer per room, by ordinal: the reference answers kept with the rooms (and in
 # aa.questions.answer).
 SOLUTIONS = {room["ordinal"]: room["answer"] for room in ROOMS}
@@ -185,9 +186,14 @@ class RoomDesignTests(unittest.TestCase):
     with the lecture's own answer."""
 
     def test_the_level_is_half_waveforms_and_half_pipelining(self):
-        self.assertNotIn("draw", BANK)
-        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, 11)))
-        self.assertEqual([room["payload"]["kind"] for room in ROOMS], ["wave"] * 5 + ["table"] * 5)
+        # Each of the ten gates is a pool of three versions; a run draws one of each, in order.
+        self.assertEqual(BANK["draw"], [{"pool": pool, "take": 1} for pool in POOLS])
+        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, len(ROOMS) + 1)))
+        self.assertEqual([room["pool"] for room in ROOMS[:10]], POOLS)
+        for k, pool in enumerate(POOLS):
+            rooms = [room for room in ROOMS if room["pool"] == pool]
+            self.assertEqual(len(rooms), 3, pool)
+            self.assertEqual({room["payload"]["kind"] for room in rooms}, {"wave" if k < 5 else "table"}, pool)
         for room in ROOMS:
             with self.subTest(room=room["ordinal"]):
                 goal, _, detail = room["prompt"].partition("\n")
@@ -204,7 +210,7 @@ class RoomDesignTests(unittest.TestCase):
         self.assertEqual(changes(ROOM[5], "Q"), (0, [(7, 1), (15, 0), (23, 1), (27, 0)]))
 
     def test_every_waveform_room_can_be_drawn_and_read(self):
-        for ordinal in range(1, 6):
+        for ordinal in [room["ordinal"] for room in ROOMS if room["payload"]["kind"] == "wave"]:
             payload = ROOM[ordinal]
             waves = simulate(payload)
             with self.subTest(room=ordinal):
@@ -231,7 +237,7 @@ class RoomDesignTests(unittest.TestCase):
         self.assertEqual(table_keys(ROOM[9]), ["0", "0", "2", "0", "0"])
         # With forwarding, only the load-use stall (Lecture 23 Q3).
         self.assertEqual(table_keys(ROOM[10]), ["0", "1", "0", "0", "0", "0", "1"])
-        for ordinal in (9, 10):
+        for ordinal in [room["ordinal"] for room in ROOMS if room["pool"] in ("stalls", "forwarding")]:
             chart = ROOM[ordinal]["chart"]
             # The keys are the fewest stalls that let every value arrive...
             self.assertNotIn(None, sum(forwarding(chart["rows"], chart["stalls"]), []))
@@ -244,9 +250,15 @@ class RoomDesignTests(unittest.TestCase):
             others = [list(s) for s in itertools.product(range(3), repeat=len(stalls))
                       if sum(s) <= sum(stalls) and list(s) != stalls]
             self.assertFalse(any(arrives(chart["rows"], s, chart.get("forwarding", False)) for s in others))
-        # Forwarding leaves only load-use stalls, but the room's note teaches all three mux settings.
-        chart = ROOM[10]["chart"]
-        self.assertEqual({code for codes in forwarding(chart["rows"], chart["stalls"]) for code in codes}, {"00", "01", "10"})
+        # Forwarding leaves only load-use stalls, but each forwarding room's note teaches all three
+        # mux settings, and its two stalls are on different lines.
+        for room in ROOMS:
+            if room["pool"] == "forwarding":
+                chart = room["payload"]["chart"]
+                self.assertEqual({code for codes in forwarding(chart["rows"], chart["stalls"]) for code in codes},
+                                 {"00", "01", "10"})
+                self.assertTrue(room["payload"]["solved_note"])
+                self.assertEqual(sorted(chart["stalls"])[-2:], [1, 1])
         for room in ROOMS:
             for clock in room["payload"].get("clocks", []):
                 total = sum(time for _, time in clock["path"])
@@ -257,12 +269,26 @@ class RoomDesignTests(unittest.TestCase):
             blanks = [cell for row in room["payload"].get("rows", []) for cell in row if isinstance(cell, dict)]
             for blank in blanks + room["payload"].get("asks", []):
                 self.assertIn(blank["blank"], blank.get("choices", [blank["blank"]]))
-        for ordinal in (7, 8, 9, 10):
+        for ordinal in [room["ordinal"] for room in ROOMS if room["payload"].get("chart")]:
             chart = ROOM[ordinal]["chart"]
             with self.subTest(room=ordinal):
                 marks = chart.get("starts", chart.get("stalls"))
                 self.assertEqual(len(marks), len(chart["rows"]))
                 self.assertLessEqual(len(chart["rows"]) + len(chart["stages"]) - 1 + sum(chart.get("stalls", [])), chart["cycles"])
+
+
+    def test_the_versions_of_a_gate_differ(self):
+        # A student who memorised one version can't carry its answer to another.
+        for pool in POOLS:
+            payloads = [room["payload"] for room in ROOMS if room["pool"] == pool]
+            with self.subTest(pool=pool):
+                self.assertEqual(len({json.dumps(payload, sort_keys=True) for payload in payloads}), len(payloads))
+                keys = [json.dumps(table_keys(payload) if payload["kind"] == "table"
+                                   else {name: simulate(payload)[name] for name in payload["draw"]}) for payload in payloads]
+                # A waveform or a stall plan is the answer itself, so those must differ too. (Every
+                # hazard-free diagram's answer is 0, 1, 2, ..., and clocks may share a total.)
+                if pool in ("stalls", "forwarding") or payloads[0]["kind"] == "wave":
+                    self.assertEqual(len(set(keys)), len(keys))
 
 
 if __name__ == "__main__":

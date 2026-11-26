@@ -97,7 +97,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	run_button.pressed.connect(run_tests)
 	keys.add_child(run_button)
 	clear_button = _tool("Clear", restart, "R")
-	hint_button = _tool("Hint", show_hint, "")
+	hint_button = _tool("Hint (−1★)", show_hint, "")
 	for tool in [clear_button, hint_button]:
 		keys.add_child(tool)
 	_show_start(0, false)
@@ -195,7 +195,7 @@ func failed() -> void:
 	locked = false
 	_sync()
 	if fails >= 2 and not hint_used and not hint.is_empty():
-		hint_button.text = "Need a hint?"
+		hint_button.text = "Need a hint? (−1★)"
 		hint_button.modulate = Style.GOLD
 
 ## The attempt never reached the grader: back to how things were before the run.

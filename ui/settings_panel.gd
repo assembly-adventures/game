@@ -9,6 +9,8 @@ const PREFERENCES := "user://settings.cfg"
 
 var is_open := false
 var hide_leaderboard := false
+var reduce_motion := false  # No screen shakes or particle bursts.
+var motion_toggle: CheckButton
 var was_paused := false
 var previous_focus: WeakRef
 var overlay: Control
@@ -31,13 +33,21 @@ func _ready() -> void:
 	var preferences := ConfigFile.new()
 	if preferences.load(PREFERENCES) == OK:
 		hide_leaderboard = bool(preferences.get_value("competition", "hide_board", false))
+		reduce_motion = bool(preferences.get_value("display", "reduce_motion", false))
 	_build()
 	overlay.hide()
 	PlayerData.profile_changed.connect(_sync_profile)
 	get_viewport().size_changed.connect(_layout)
 
-func make_button() -> Button:
-	var button := IconButton.new("settings")
+## Saves one preference, keeping the others in the file.
+func _save_preference(section: String, key: String, value) -> void:
+	var preferences := ConfigFile.new()
+	preferences.load(PREFERENCES)
+	preferences.set_value(section, key, value)
+	preferences.save(PREFERENCES)
+
+func make_button(caption: String = "") -> Button:
+	var button := IconButton.new("settings", caption)
 	button.pressed.connect(open)
 	return button
 
@@ -148,6 +158,11 @@ func _build() -> void:
 		PlayerData.toggle_fullscreen()
 		_sync_fullscreen.call_deferred())
 	fullscreen.tooltip_text = "You can also press F11."
+	motion_toggle = _toggle(content, "Reduce motion (no screen shake or sparks)", "ReduceMotion")
+	motion_toggle.set_pressed_no_signal(reduce_motion)
+	motion_toggle.toggled.connect(func(value: bool):
+		reduce_motion = value
+		_save_preference("display", "reduce_motion", value))
 	_section(content, "AUDIO")
 	mute = _toggle(content, "Mute all sound", "Mute")
 	mute.toggled.connect(func(value: bool): Audio.set_enabled(not value))
@@ -191,13 +206,11 @@ func _build() -> void:
 	hide_toggle = _toggle(content, "Hide the leaderboard on this device", "HideLeaderboard")
 	hide_toggle.toggled.connect(func(value: bool):
 		hide_leaderboard = value
-		var preferences := ConfigFile.new()
-		preferences.set_value("competition", "hide_board", value)
-		preferences.save(PREFERENCES)
+		_save_preference("competition", "hide_board", value)
 		changed.emit())
 	content.add_child(_label("Audio preferences stay on this device. Your nickname and visibility follow your UNC account.", 12, Color(Style.TEXT, 0.5)))
 	# Keep keyboard focus inside the modal even on the welcome screen and while a level is paused.
-	var controls: Array[Control] = [close_button, fullscreen, mute, music_slider, effects_slider, nickname_field,
+	var controls: Array[Control] = [close_button, fullscreen, motion_toggle, mute, music_slider, effects_slider, nickname_field,
 		nickname_button, visibility_toggle, hide_toggle]
 	for i in range(controls.size()):
 		controls[i].focus_next = controls[i].get_path_to(controls[(i + 1) % controls.size()])

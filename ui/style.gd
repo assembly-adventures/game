@@ -60,7 +60,7 @@ static func step(number: int, text: String, note: String = "", wrap: bool = true
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL if wrap else Control.SIZE_SHRINK_BEGIN
 	words.add_theme_constant_override("separation", 10 if inline else 0)
 	row.add_child(words)
-	for part in [[text, 14, Color(TEXT, 0.92)], [note, 12, Color(TEXT, 0.55)]]:
+	for part in [[text, 14, Color(TEXT, 0.92)], [note, 13, Color(TEXT, 0.72)]]:
 		var label := Label.new()
 		label.text = part[0]
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wrap and not inline else TextServer.AUTOWRAP_OFF
@@ -125,6 +125,9 @@ static func panel_style() -> StyleBoxFlat:
 ## CPU particles are used because they are the most reliable choice for the web build.
 static func burst(parent: Node, at: Vector2, colors: Array, amount: int = 16, speed: float = 170.0,
 		spread: float = 180.0, gravity: float = 420.0, size: float = 5.0, lifetime: float = 0.7) -> void:
+	var settings = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Settings")
+	if settings != null and settings.reduce_motion:
+		return  # The player asked for less motion.
 	var particles := CPUParticles2D.new()
 	particles.position = at
 	particles.one_shot = true

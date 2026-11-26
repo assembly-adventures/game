@@ -133,8 +133,14 @@ levels and questions; `0007` activates Level 2.
 
 Without a `draw` rule, a run plays every active question in ordinal order. A
 rule lists pools (`questions.pool`) in order. Each pool gives all its active
-questions, or `take` of them chosen at random, kept in ordinal order. Level 2's
-rule plays 10 of its 16 rooms: the four tutorial rooms, one memory, one
+questions, or `take` of them, kept in ordinal order. A pool with `take` gives the
+questions the player has played least since they last signed in
+(`aa.players.signed_in_at`; runs that ended before it don't count), so none comes
+back until the player has played the whole pool. Ties avoid the questions of the
+player's latest run of the level and are then broken at random. Signing in again
+starts the count over (`server/gameplay.py`, `draw` and `played_this_session`;
+guest mode does the same in `player_data.gd`, counting since the page loaded).
+Level 2's rule plays 10 of its 20 rooms: the four tutorial rooms, one memory, one
 branches, and one loops room, both procedure rooms, and the race:
 
 ```json
@@ -142,7 +148,11 @@ branches, and one loops room, both procedure rooms, and the race:
  {"pool": "loops", "take": 1}, {"pool": "procedures"}, {"pool": "finale"}]
 ```
 
-Level 3 has no draw rule: its eight walkthroughs play in order. Level 1's rule
+Levels 3 and 4 draw one version of each gate per run, in order: each gate is a
+pool of three rooms (Level 3: `call`, `way-back`, `keep-value`,
+`saved-registers`, `recursion`, `base-case`, `two-calls`, `race`; Level 4:
+`logic`, `delay`, `path`, `flip-flop`, `clk-to-q`, `clock`, `overlap`,
+`five-stage`, `stalls`, `forwarding`), each with `"take": 1`. Level 1's rule
 plays 10 of its 22 gates: the four tutorial gates, then one from each topic pool
 (`hex`, `masks`, `flips`, `signed`, `overflow`, `shifts`).
 
@@ -447,7 +457,15 @@ Level 1's topic pools (28 gates). `0017_level2_room_changes.sql` replaces three
 Level 2 rooms that were too much like others (3, 11, and 15) and adds four (20
 rooms). `0018_level4_timing_lab.sql` turns the "The Stack" placeholder into
 Level 4, Timing Lab: five waveform rooms and five pipelining rooms played in
-order, with the `wave` and `table` kinds added to the payload check. From `0016` on, room rows are written by
+order, with the `wave` and `table` kinds added to the payload check.
+`0019_draw_without_repeats.sql` adds `aa.players.signed_in_at`, which the draw
+uses so that a player sees every question of a pool before any comes back.
+`0020_levels_3_and_4_gate_versions.sql` puts Levels 3 and 4's rooms into one pool
+per gate, adds two new versions of every gate (Level 3: 24 rooms, Level 4: 30),
+and gives both levels a draw rule. `0021_shorter_prompts.sql` drops the
+controls from 18 Level 3 and 4 prompts (such as "Set both clocks with − and +,
+then press Race"), since each level's **How this level works** card now explains
+them once. From `0016` on, room rows are written by
 `tools/rooms.py` from the guest files; see [adding-content.md](adding-content.md).
 Level ideas are collected in [level-brainstorm.md](level-brainstorm.md).
 

@@ -11,7 +11,7 @@ the game asks the player to reload and sign in again.
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /api/me` | Onyen, active earned badges, progress, `is_staff`, `leaderboard_visible`, `nickname` (null until chosen), and `leaderboard_name` (the nickname, or `Player <number>`) |
-| `GET /api/levels` | Availability, question counts, and completion flags |
+| `GET /api/levels` | Availability, question counts, and completion flags, plus the player's progress on each level: `best_stars` and `max_stars` of their best finished run (null before any), and `in_progress`, `{solved, total}` for a run not yet finished (null when none is) |
 | `POST /api/runs` | `{level_id: 1, telemetry_version: 1}` starts or resumes a run; omitting the telemetry version creates a legacy, unranked run |
 | `POST /api/runs/{id}/attempts` | Records and grades an answer; requires question ID, request ID, response, and optional elapsed time |
 | `POST /api/runs/{id}/finish` | Requires all questions correct; completes run and awards badge in one transaction |
@@ -55,9 +55,11 @@ Starting a run returns `id`, `level_id`, `outcome`, `questions`,
 gates, keyed by question ID). The game skips solved questions when resuming. Each
 question is an immutable snapshot with shuffled opaque option IDs. Solutions
 stay in `aa.run_questions.solution`, which is never serialized by these routes.
-A level with a draw rule (Levels 1 and 2) draws its questions from a bank when a run
+A level with a draw rule (every level today) draws its questions from a bank when a run
 starts. The run keeps that draw, in order, until it finishes, so resuming shows
-the same rooms; the next run draws again.
+the same rooms; the next run draws again. A drawn question doesn't come back
+until the player has played every question of its pool since they last signed
+in; signing in again starts over (see the `draw` rule in [schema.md](schema.md)).
 
 Responses for each question type:
 

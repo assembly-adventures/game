@@ -17,6 +17,7 @@ ROOM = {room["ordinal"]: room["payload"] for room in ROOMS}
 # One winning answer per Level 3 walkthrough, by ordinal: the option picked at each moment. Each
 # room's reference answer is kept with it in guest_rooms.json (and in aa.questions.answer).
 SOLUTIONS = {room["ordinal"]: room["answer"] for room in ROOMS}
+POOLS = ["call", "way-back", "keep-value", "saved-registers", "recursion", "base-case", "two-calls", "race"]
 
 
 def good_choices(payload):
@@ -139,9 +140,14 @@ class RoomDesignTests(unittest.TestCase):
     """Each walkthrough teaches what it says: its good moves keep the contract, every wrong move
     breaks it (so playing it out shows something real), and every room stays short enough to follow."""
 
-    def test_the_story_plays_in_order(self):
-        self.assertNotIn("draw", BANK)
-        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, 9)))
+    def test_the_story_draws_one_version_of_each_gate_in_order(self):
+        # Each of the story's eight gates is a pool of three versions (the original room and two
+        # that teach the same idea with a different program); a run draws one of each, in order.
+        self.assertEqual(BANK["draw"], [{"pool": pool, "take": 1} for pool in POOLS])
+        self.assertEqual([room["ordinal"] for room in ROOMS], list(range(1, len(ROOMS) + 1)))
+        self.assertEqual([room["pool"] for room in ROOMS[:8]], POOLS)
+        for pool in POOLS:
+            self.assertEqual(sum(room["pool"] == pool for room in ROOMS), 3, pool)
         for room in ROOMS:
             payload = room["payload"]
             with self.subTest(room=room["ordinal"]):
@@ -176,17 +182,32 @@ class RoomDesignTests(unittest.TestCase):
                 self.assertLessEqual(run(payload, lines, labels, 0)["steps"], 80)
 
     def test_every_working_frame_wins_the_finale(self):
-        finale = ROOM[8]
-        self.assertIn("chomper", finale)
-        options = moments(finale)[0]["options"]
-        self.assertEqual([option["frame"] for option in options if option["good"] and not option.get("loose")],
-                         [["s0", "ra"]])
-        self.assertTrue(any(option.get("loose") and option["good"] for option in options))
-        free = dict(finale, stack_words=64)
-        del free["chomper"]
-        for k, option in enumerate(options):
-            with self.subTest(option=option["label"]):
-                self.assertEqual(passes(finale, [k]), passes(free, [k]))
+        self.assertEqual([option["frame"] for option in moments(ROOM[8])[0]["options"]
+                          if option["good"] and not option.get("loose")], [["s0", "ra"]])
+        for room in ROOMS:
+            if room["pool"] != "race":
+                continue
+            finale = room["payload"]
+            self.assertIn("chomper", finale)
+            options = moments(finale)[0]["options"]
+            # One frame that fits exactly, and at least one bigger one that works but costs a star.
+            self.assertEqual(len([option for option in options if option["good"] and not option.get("loose")]), 1)
+            self.assertTrue(any(option.get("loose") and option["good"] for option in options))
+            free = dict(finale, stack_words=64)
+            del free["chomper"]
+            for k, option in enumerate(options):
+                with self.subTest(room=room["ordinal"], option=option["label"]):
+                    self.assertEqual(passes(finale, [k]), passes(free, [k]))
+
+    def test_the_versions_of_a_gate_are_different_programs(self):
+        # A student who memorised one version can't carry its answer to another: each has its own
+        # C, function, and arguments.
+        for pool in POOLS:
+            rooms = [room for room in ROOMS if room["pool"] == pool]
+            with self.subTest(pool=pool):
+                self.assertEqual(len({room["code_snippet"] for room in rooms}), len(rooms))
+                self.assertEqual(len({json.dumps([room["payload"]["entry"], room["payload"]["calls"]]) for room in rooms}),
+                                 len(rooms))
 
 
 if __name__ == "__main__":

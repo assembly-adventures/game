@@ -3,7 +3,7 @@ extends Control
 
 const Style := preload("res://ui/style.gd")
 const CircuitBackdrop := preload("res://ui/circuit_backdrop.gd")
-const LEVEL_NAMES := ["1 · Registers", "2 · Memory Maze", "3 · Call Stack Tower", "4 · Timing Lab"]
+const LEVEL_NAMES := ["1 · Basic RISC-V Commands", "2 · Memory Maze", "3 · Call Stack Tower", "4 · Timing Lab"]
 
 var level_id := 1
 var week_offset := 0
@@ -40,7 +40,7 @@ func _build() -> void:
 		margins.add_theme_constant_override("margin_" + edge, 24)
 	add_child(margins)
 	var layout := VBoxContainer.new()
-	layout.add_theme_constant_override("separation", 16)
+	layout.add_theme_constant_override("separation", 10)
 	margins.add_child(layout)
 	var navigation := HBoxContainer.new()
 	navigation.add_theme_constant_override("separation", 12)
@@ -49,26 +49,19 @@ func _build() -> void:
 	back.text = "◀ Control Center"
 	back.pressed.connect(func(): get_tree().change_scene_to_file("res://control_center.tscn"))
 	navigation.add_child(back)
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	navigation.add_child(spacer)
-	navigation.add_child(Settings.make_button())
-	var heading := HBoxContainer.new()
-	heading.add_theme_constant_override("separation", 16)
-	layout.add_child(heading)
-	var titles := VBoxContainer.new()
-	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	titles.add_theme_constant_override("separation", 4)
-	heading.add_child(titles)
+	# One row up top: back, the title, Refresh, and Settings, so the standings get the height.
 	var title := _label("Weekly leaderboard", 30, Style.TEXT)
 	title.theme_type_variation = &"TitleLabel"
-	titles.add_child(title)
-	titles.add_child(_label("A fresh week. Another chance to improve your best.", 16, Color(Style.TEXT, 0.65)))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	navigation.add_child(title)
 	refresh_button = Button.new()
 	refresh_button.text = "Refresh"
 	refresh_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	refresh_button.pressed.connect(_load_board)
-	heading.add_child(refresh_button)
+	navigation.add_child(refresh_button)
+	navigation.add_child(Settings.make_button())
 	var levels := HBoxContainer.new()
 	levels.add_theme_constant_override("separation", 10)
 	layout.add_child(levels)
@@ -99,7 +92,7 @@ func _build() -> void:
 	next_button.pressed.connect(_change_week.bind(1))
 	period.add_child(next_button)
 	current_button = Button.new()
-	current_button.text = "This week"
+	current_button.text = "Back to this week"
 	current_button.pressed.connect(func():
 		week_offset = 0
 		_load_board())
@@ -119,7 +112,7 @@ func _build() -> void:
 	board.add_child(scroll)
 	rows = VBoxContainer.new()
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rows.add_theme_constant_override("separation", 6)
+	rows.add_theme_constant_override("separation", 4)
 	scroll.add_child(rows)
 	status_label = _label("Loading standings…", 18, Color(Style.TEXT, 0.7))
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -140,8 +133,7 @@ func _build() -> void:
 	naming.autowrap_mode = TextServer.AUTOWRAP_OFF
 	naming.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	you.add_child(naming)
-	layout.add_child(_label("Highest stars, then fewest mistakes. Equal results share a rank. Each entry is one completed run.", 14, Color(Style.TEXT, 0.7)))
-	layout.add_child(_label("New week: Monday, 12:00 AM Eastern. Random rooms keep each run different. Badges and progress never reset.", 13, Color(Style.TEXT, 0.5)))
+	layout.add_child(_label("Highest stars, then fewest mistakes; equal results share a rank. Each entry is one completed run. A new week starts Monday at 12:00 AM Eastern; badges and progress never reset.", 13, Color(Style.TEXT, 0.55)))
 	back.grab_focus()
 
 func _label(text: String, font_size: int, color: Color) -> Label:
@@ -158,6 +150,8 @@ func _row(rank: String, player: String, stars: String, mistakes: String, mine: b
 	look.bg_color = Color(Style.CYAN, 0.09) if mine else Color(0.04, 0.075, 0.11, 0.5)
 	look.set_corner_radius_all(8)
 	look.set_content_margin_all(12)
+	look.content_margin_top = 6
+	look.content_margin_bottom = 6
 	if mine:
 		look.set_border_width_all(1)
 		look.border_color = Color(Style.CYAN, 0.45)
@@ -172,7 +166,7 @@ func _row(rank: String, player: String, stars: String, mistakes: String, mine: b
 		var color := Color(Style.TEXT, 0.5) if heading else Style.CYAN if mine else Style.TEXT
 		if i == 2 and not heading:
 			color = Style.GOLD
-		var label := _label(str(values[i]), 12 if heading else 18, color)
+		var label := _label(str(values[i]), 12 if heading else 16, color)
 		label.add_theme_font_override("font", Style.MONO)
 		label.custom_minimum_size.x = [72, 0, 120, 110][i]
 		if i == 1:
@@ -203,7 +197,7 @@ func _load_board() -> void:
 	retry_button.hide()
 	next_button.disabled = week_offset == 0
 	previous_button.disabled = week_offset == -52
-	current_button.disabled = week_offset == 0
+	current_button.visible = week_offset != 0  # Only useful when looking at an earlier week.
 	week_label.text = "This week" if week_offset == 0 else "%d week%s ago" % [-week_offset, "" if week_offset == -1 else "s"]
 	if Settings.hide_leaderboard:
 		status_label.text = "The leaderboard is hidden on this device. You can show it again in Settings."

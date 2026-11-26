@@ -15,15 +15,17 @@ STRIKES = 3  # Failed tries on a puzzle gate before the Chip Chomper drags the p
 
 
 def register_player(onyen: str, pid: str) -> None:
-    """Store verified roster identifiers; identity never comes from gameplay JSON."""
+    """Store verified roster identifiers; identity never comes from gameplay JSON. Each sign-in
+    also starts a new session for the draw: gates played before it may come up again."""
     with connect() as conn:
         # Update first: an upsert would use up a player number, the default leaderboard name, on every sign-in.
-        if not conn.execute("UPDATE aa.players SET pid=%s,last_seen_at=now() WHERE onyen=%s", (pid, onyen)).rowcount:
+        if not conn.execute("UPDATE aa.players SET pid=%s,last_seen_at=now(),signed_in_at=now() WHERE onyen=%s",
+                            (pid, onyen)).rowcount:
             # Nicknames can't be checked against Onyens nobody has signed in with yet. Whoever took
             # this one as a nickname goes back to Player <number>.
             conn.execute("UPDATE aa.players SET nickname=NULL WHERE nickname=%s", (onyen,))
-            conn.execute("""INSERT INTO aa.players(onyen,pid,last_seen_at) VALUES (%s,%s,now())
-                ON CONFLICT (onyen) DO UPDATE SET pid=excluded.pid,last_seen_at=now()""", (onyen, pid))
+            conn.execute("""INSERT INTO aa.players(onyen,pid,last_seen_at,signed_in_at) VALUES (%s,%s,now(),now())
+                ON CONFLICT (onyen) DO UPDATE SET pid=excluded.pid,last_seen_at=now(),signed_in_at=now()""", (onyen, pid))
 
 
 def player(conn, onyen: str) -> dict:
@@ -51,12 +53,27 @@ def me(onyen: str) -> dict:
 
 
 def levels(onyen: str) -> list[dict]:
+    """Every level, with the player's progress on it: whether they have completed it, their best
+    finished run's stars (`best_stars` out of `max_stars`, null before any), and where a run still
+    in progress stands (`in_progress`: gates solved and the run's total, or null)."""
     with connect() as conn:
         who = player(conn, onyen)
-        return conn.execute("""SELECT l.id,l.name,l.slug,l.is_active,
+        rows = conn.execute("""SELECT l.id,l.name,l.slug,l.is_active,
             (SELECT count(*) FROM aa.questions q WHERE q.level_id=l.id AND q.is_active) AS question_count,
-            EXISTS(SELECT 1 FROM aa.level_runs r WHERE r.player_id=%s AND r.level_id=l.id AND r.passed) AS completed
-            FROM aa.levels l ORDER BY l.ordinal""", (who["id"],)).fetchall()
+            EXISTS(SELECT 1 FROM aa.level_runs r WHERE r.player_id=%(p)s AND r.level_id=l.id AND r.passed) AS completed,
+            best.stars_total AS best_stars, best.questions_total * 3 AS max_stars,
+            going.id AS going_id, going.questions_total AS going_total
+            FROM aa.levels l
+            LEFT JOIN LATERAL (SELECT stars_total, questions_total FROM aa.level_runs r
+                WHERE r.player_id=%(p)s AND r.level_id=l.id AND r.passed AND r.stars_total IS NOT NULL
+                ORDER BY r.stars_total DESC, r.ended_at LIMIT 1) best ON true
+            LEFT JOIN LATERAL (SELECT id, questions_total FROM aa.level_runs r
+                WHERE r.player_id=%(p)s AND r.level_id=l.id AND r.outcome='in_progress' LIMIT 1) going ON true
+            ORDER BY l.ordinal""", {"p": who["id"]}).fetchall()
+        for row in rows:
+            going_id, total = row.pop("going_id"), row.pop("going_total")
+            row["in_progress"] = {"solved": len(progress(conn, going_id)["solved"]), "total": total} if going_id else None
+        return rows
 
 
 def replay(order: list, attempts: list[dict], reopened: dict) -> tuple[set, dict]:
@@ -119,8 +136,9 @@ def start_run(onyen: str, level_id: int, telemetry_version: int = 0) -> dict:
                               (who["id"], level_id)).fetchone()
         if active:
             return run_view(conn, active)
+        played, last = played_this_session(conn, who["id"], level_id) if level.get("draw") else ({}, set())
         questions = draw(level, conn.execute("SELECT * FROM aa.questions WHERE level_id=%s AND is_active ORDER BY ordinal",
-                                             (level_id,)).fetchall())
+                                             (level_id,)).fetchall(), played, last)
         if not questions:
             raise HTTPException(409, "No questions are available for this level.")
         run = conn.execute("""INSERT INTO aa.level_runs(player_id,level_id,questions_total,scoring_version)
@@ -136,17 +154,40 @@ def start_run(onyen: str, level_id: int, telemetry_version: int = 0) -> dict:
         return run_view(conn, run)
 
 
-def draw(level: dict, questions: list[dict]) -> list[dict]:
+def played_this_session(conn, player_id: UUID, level_id: int) -> tuple[dict, set]:
+    """How many times the player has played each of a level's questions since they last signed
+    in (every run that hadn't ended before the sign-in counts), and the questions of their latest
+    run of the level. Signing in again starts the count over."""
+    played = {row["question_id"]: row["plays"] for row in conn.execute("""
+        SELECT rq.question_id, count(*) AS plays FROM aa.run_questions rq
+        JOIN aa.level_runs r ON r.id=rq.run_id JOIN aa.players p ON p.id=r.player_id
+        WHERE r.player_id=%s AND r.level_id=%s
+          AND (r.ended_at IS NULL OR r.ended_at >= COALESCE(p.signed_in_at, '-infinity'))
+        GROUP BY rq.question_id""", (player_id, level_id)).fetchall()}
+    last = {row["question_id"] for row in conn.execute("""
+        SELECT question_id FROM aa.run_questions WHERE run_id=(
+            SELECT id FROM aa.level_runs WHERE player_id=%s AND level_id=%s ORDER BY started_at DESC LIMIT 1)""",
+        (player_id, level_id)).fetchall()}
+    return played, last
+
+
+def draw(level: dict, questions: list[dict], played: dict | None = None, last: set | frozenset = frozenset()) -> list[dict]:
     """The questions a new run plays. Without a draw rule that is every active question, in
-    order. A rule lists pools in order; each pool gives all its questions, or `take` of them chosen
-    at random, kept in ordinal order."""
+    order. A rule lists pools in order; each pool gives all its questions, or `take` of them, kept
+    in ordinal order. A pool that takes some picks the ones the player has played least this
+    session (`played` counts plays by question ID), so nothing comes back until the player has
+    played the whole pool; then a new round starts. Ties avoid the player's previous run (`last`),
+    so a new round doesn't open with the question the last one ended on, and then fall at random."""
     if not level.get("draw"):
         return questions
+    played = played or {}
+    chance = secrets.SystemRandom()
     picked = []
     for slot in level["draw"]:
         pool = [question for question in questions if question["pool"] == slot["pool"]]
         take = min(slot.get("take", len(pool)), len(pool))
-        chosen = {question["id"] for question in secrets.SystemRandom().sample(pool, take)}
+        ranked = sorted(pool, key=lambda question: (played.get(question["id"], 0), question["id"] in last, chance.random()))
+        chosen = {question["id"] for question in ranked[:take]}
         picked += [question for question in pool if question["id"] in chosen]
     return picked
 

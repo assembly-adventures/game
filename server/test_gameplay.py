@@ -15,9 +15,9 @@ from itsdangerous import URLSafeTimedSerializer
 
 from server.app import create_app, SESSION_COOKIE
 from server.database import connect, migrate
-from server.gameplay import draw, register_player, replay
-from server.test_call_stack import SOLUTIONS as TOWER_SOLUTIONS
-from server.test_timing import SOLUTIONS as TIMING_SOLUTIONS
+from server.gameplay import draw, played_this_session, register_player, replay
+from server.test_call_stack import POOLS as TOWER_POOLS, SOLUTIONS as TOWER_SOLUTIONS
+from server.test_timing import POOLS as TIMING_POOLS, SOLUTIONS as TIMING_SOLUTIONS
 from server.puzzles import grade_puzzle
 from server.test_puzzles import BANK, GATE_SOLUTIONS, LEVEL1, SOLUTIONS, answer
 
@@ -72,6 +72,28 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual([next(pool for pool in topics if n in pools[pool]) for n in ordinals[4:]], topics)
         self.assertGreater(len({tuple(ordinals) for ordinals in runs}), 5)
 
+    def test_a_session_plays_every_gate_of_a_pool_before_any_comes_back(self):
+        # Level 1 draws one gate from each topic pool of four. Feed each run's gates back in as
+        # played, as start_run does, for nine runs: two full rounds, and the start of a third.
+        bank = [{"id": gate["ordinal"], "ordinal": gate["ordinal"], "pool": gate["pool"]} for gate in LEVEL1["rooms"]]
+        pools = {}
+        for gate in LEVEL1["rooms"]:
+            pools.setdefault(gate["pool"], []).append(gate["ordinal"])
+        for _ in range(25):  # Ties fall at random, so try many sessions.
+            played, last, runs = {}, set(), []
+            for _ in range(9):
+                run = [question["ordinal"] for question in draw({"draw": LEVEL1["draw"]}, bank, played, last)]
+                for ordinal in run:
+                    played[ordinal] = played.get(ordinal, 0) + 1
+                last = set(run)
+                runs.append(run)
+            self.assertTrue(all(run[:4] == [1, 2, 3, 4] for run in runs))  # The tutorial still plays every run.
+            for topic in ["hex", "masks", "flips", "signed", "overflow", "shifts"]:
+                drawn = [next(n for n in run if n in pools[topic]) for run in runs]
+                self.assertEqual(sorted(drawn[:4]), sorted(pools[topic]))  # A round plays the whole pool...
+                self.assertEqual(sorted(drawn[4:8]), sorted(pools[topic]))  # ...and so does the next.
+                self.assertTrue(all(a != b for a, b in zip(drawn, drawn[1:])))  # Never the same gate twice running.
+
     def test_strikes_count_only_since_the_player_arrived(self):
         attempts = self.log((0, "a", False), (1, "a", False), (2, "a", True), (3, "b", True))
         self.assertEqual(replay(["a", "b"], attempts, {"a": 3.5})[1]["a"], 0)
@@ -92,6 +114,7 @@ class GameplayTests(unittest.TestCase):
         self.onyen = "test_" + uuid4().hex
         self.other = "test_" + uuid4().hex
         pid = str(100000000 + uuid4().int % 800000000)
+        self.pid = pid
         register_player(self.onyen, pid)
         register_player(self.other, str(int(pid) + 1))
         self.addCleanup(self.cleanup_players)
@@ -313,16 +336,18 @@ class GameplayTests(unittest.TestCase):
         run = self.start(3)
         rooms = run['questions']
         with connect() as conn:
-            bank = {str(row['id']): row['ordinal'] for row in conn.execute(
-                'SELECT id,ordinal FROM aa.questions WHERE level_id=3 AND is_active').fetchall()}
-        # The eight walkthroughs, in order: no draw.
-        self.assertEqual([bank[room['id']] for room in rooms], list(range(1, 9)))
+            pools = {str(row['id']): row['pool'] for row in conn.execute(
+                'SELECT id,pool FROM aa.questions WHERE level_id=3 AND is_active').fetchall()}
+        # The eight gates of the story, in order: one version of each.
+        self.assertEqual([pools[room['id']] for room in rooms], TOWER_POOLS)
         self.assertEqual({room['payload']['kind'] for room in rooms}, {'walk'})
         # The game never sends a wrong move (it plays out and rewinds), but one sent anyway is a miss and
         # a strike, and a move the room doesn't offer is malformed.
-        result = self.answer(run['id'], rooms[0], {'choices': [1]}).json()
+        options = next(entry for entry in rooms[0]['payload']['code'] if 'moment' in entry)['options']
+        wrong = next(k for k, option in enumerate(options) if not option['good'])
+        result = self.answer(run['id'], rooms[0], {'choices': [wrong]}).json()
         self.assertEqual((result['is_correct'], result['strikes']), (False, 1))
-        self.assertEqual(self.answer(run['id'], rooms[0], {'choices': [2]}).status_code, 422)
+        self.assertEqual(self.answer(run['id'], rooms[0], {'choices': [len(options)]}).status_code, 422)
         for room in rooms:
             result = self.answer(run['id'], room, self.solution(run['id'], room))
             self.assertEqual(result.status_code, 200, result.text)
@@ -334,14 +359,78 @@ class GameplayTests(unittest.TestCase):
         levels = {level['id']: level for level in self.client.get('/api/levels').json()}
         self.assertEqual((levels[3]['name'], levels[3]['completed']), ('Call Stack Tower', True))
 
+    def play_through(self, level_id):
+        run = self.start(level_id)
+        for question in run['questions']:
+            result = self.answer(run['id'], question, self.solution(run['id'], question))
+            self.assertTrue(result.json()['is_correct'], result.text)
+        self.assertEqual(self.post(f"/runs/{run['id']}/finish").status_code, 200)
+        return [question['id'] for question in run['questions']]
+
+    def test_level_list_gives_best_stars_and_the_run_in_progress(self):
+        def listed():
+            level = {level['id']: level for level in self.client.get('/api/levels').json()}[1]
+            return level['best_stars'], level['max_stars'], level['in_progress']
+        self.assertEqual(listed(), (None, None, None))
+        run = self.start()
+        self.assertEqual(listed(), (None, None, {'solved': 0, 'total': 10}))
+        for question in run['questions'][:2]:
+            self.assertTrue(self.answer(run['id'], question, self.solution(run['id'], question)).json()['is_correct'])
+        self.assertEqual(listed(), (None, None, {'solved': 2, 'total': 10}))
+        for question in run['questions'][2:]:
+            self.answer(run['id'], question, self.solution(run['id'], question))
+        self.assertEqual(self.post(f"/runs/{run['id']}/finish").json()['stars'], 30)
+        self.assertEqual(listed(), (30, 30, None))
+        # A worse run later keeps the best; a new run shows where it stands beside it.
+        run = self.start()
+        shown = self.post(f"/runs/{run['id']}/events", {"question_id": run['questions'][0]['id'],
+                          "request_id": str(uuid4()), "kind": "answer"}).json()['answer']
+        self.answer(run['id'], run['questions'][0], shown)
+        for question in run['questions'][1:]:
+            self.answer(run['id'], question, self.solution(run['id'], question))
+        self.assertEqual(self.post(f"/runs/{run['id']}/finish").json()['stars'], 28)
+        self.assertEqual(listed(), (30, 30, None))
+        self.start()
+        self.assertEqual(listed(), (30, 30, {'solved': 0, 'total': 10}))
+
+    def test_replays_draw_gates_not_played_since_signing_in(self):
+        with connect() as conn:
+            me = conn.execute("SELECT id FROM aa.players WHERE onyen=%s", (self.onyen,)).fetchone()['id']
+
+        def session():
+            """This session's plays and the latest run, by question ID as the API gives it."""
+            with connect() as conn:
+                played, last = played_this_session(conn, me, 1)
+            return {str(question): count for question, count in played.items()}, {str(question) for question in last}
+        runs = [self.play_through(1) for _ in range(4)]
+        # Four runs of Level 1 play the same four tutorial gates, and 24 different drawn ones:
+        # every gate of all six topic pools, none twice.
+        self.assertTrue(all(run[:4] == runs[0][:4] for run in runs))
+        drawn = [question for run in runs for question in run[4:]]
+        self.assertEqual(len(set(drawn)), 24)
+        played, last = session()
+        self.assertEqual(last, set(runs[-1]))
+        self.assertEqual({played[question] for question in drawn}, {1})
+        # Signing in again starts the count over: the four finished runs no longer count. A run
+        # still going at the sign-in does, since the player is still playing it this session.
+        unfinished = self.start(1)
+        register_player(self.onyen, self.pid)
+        self.assertEqual(session()[0], {question['id']: 1 for question in unfinished['questions']})
+        for question in unfinished['questions']:
+            self.answer(unfinished['id'], question, self.solution(unfinished['id'], question))
+        self.assertEqual(self.post(f"/runs/{unfinished['id']}/finish").status_code, 200)
+        played, last = session()
+        self.assertEqual(played, {question['id']: 1 for question in unfinished['questions']})
+        self.assertEqual(last, set(played))
+
     def test_timing_lab_plays_its_rooms_and_awards_its_badge(self):
         run = self.post('/runs', {"level_id": 4, "telemetry_version": 1}).json()
         rooms = run['questions']
         with connect() as conn:
-            bank = {str(row['id']): row['ordinal'] for row in conn.execute(
-                'SELECT id,ordinal FROM aa.questions WHERE level_id=4 AND is_active').fetchall()}
-        # The ten rooms, in order (no draw): five waveform rooms, then five on pipelining.
-        self.assertEqual([bank[room['id']] for room in rooms], list(range(1, 11)))
+            pools = {str(row['id']): row['pool'] for row in conn.execute(
+                'SELECT id,pool FROM aa.questions WHERE level_id=4 AND is_active').fetchall()}
+        # The ten gates, in order, one version of each: five waveform rooms, then five on pipelining.
+        self.assertEqual([pools[room['id']] for room in rooms], TIMING_POOLS)
         self.assertEqual([room['payload']['kind'] for room in rooms], ['wave'] * 5 + ['table'] * 5)
         # A waveform drawn a tick late is a miss and a strike; one of the wrong length is malformed.
         right = self.solution(run['id'], rooms[0])
@@ -431,7 +520,7 @@ class GameplayTests(unittest.TestCase):
     def test_every_active_question_has_a_reference_answer_that_opens_it(self):
         with connect() as conn:
             rows = conn.execute("SELECT level_id,ordinal,payload,answer FROM aa.questions WHERE is_active AND type='puzzle'").fetchall()
-        self.assertEqual(len(rows), 28 + 20 + 8 + 10)
+        self.assertEqual(len(rows), 28 + 20 + 24 + 30)
         for row in rows:
             with self.subTest(level=row['level_id'], room=row['ordinal']):
                 self.assertTrue(grade_puzzle(row['payload'], row['answer']))

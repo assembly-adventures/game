@@ -1,15 +1,18 @@
 # Staff statistics, settings, and weekly standings
 
-The Control Center has adjacent trophy and settings buttons in its top-right
-corner. The trophy opens the leaderboard; the gear opens settings over the current
+The Control Center has labelled **Leaderboard** (trophy) and **Settings** (gear)
+buttons in its top-right corner. The leaderboard's week controls show **Back to
+this week** only while an earlier week is open. Settings open over the current
 screen. Every playable level also has the gear. F10 opens settings anywhere,
 Escape closes them, and F11 toggles fullscreen. Settings pause the scene and
 restore its previous pause state when closed.
 
 ## Settings and visibility
 
-Mute, music volume, sound-effect volume, and hiding the leaderboard on this device
-persist in Godot's `user://` storage. Fullscreen requires a user gesture.
+Mute, music volume, sound-effect volume, **Reduce motion** (no screen shakes or
+particle bursts), and hiding the leaderboard on this device persist in Godot's
+`user://` storage, as does which levels' **How this level works** cards the
+device has already shown (`user://help.cfg`). Fullscreen requires a user gesture.
 The nickname and **Show me on the leaderboard** are account preferences; the
 toggle is on by default. Turning it off removes public entries from current and
 historical standings while preserving learning progress and staff statistics.
@@ -42,8 +45,8 @@ number and can choose again.
 ## Weekly leaderboard
 
 All signed-in players form one group, with separate tabs for Levels 1–4. There is
-no roster or section membership. Normal question draws remain random, so run
-difficulty can vary. Competition has no effect on badges or level availability.
+no roster or section membership. Drawn gates change from run to run (a player
+sees every gate of a pool before any comes back), so run difficulty can vary. Competition has no effect on badges or level availability.
 
 Weeks run Monday 00:00 to the following Monday 00:00 in `America/New_York`,
 including daylight-saving changes. Runs count in the week they finish. Standings
@@ -58,7 +61,10 @@ code/tower/timing rooms. A gate whose answer was shown (**Show answer**) earns
 one star. A player who goes back to an open gate keeps the best stars any of
 their correct answers to it earned. A mistake means a failed submitted answer or wrong walkthrough decision.
 Undo, free planning, and unsubmitted maze actions are not mistakes. Hints and
-mistakes survive reloads and setbacks within the run.
+mistakes survive reloads and setbacks within the run. Players see these rules as
+they play: each level's **How this level works** card states them, the line under
+a gate's title shows the stars it can still earn and **Strikes N of 3**, and the
+hint and answer buttons show their cost (**Hint (−1★)**, **Show answer (max 1★)**).
 
 Migration `0013_reporting_leaderboard.sql` preserves existing runs with
 `scoring_version=0`. Only clients starting a new run with `telemetry_version: 1`
@@ -82,7 +88,8 @@ an alternative authorization path.
 
 Authorized users see a **Staff dashboard** link in the Control Center. It opens
 the dashboard in the same tab, and the dashboard's **Back to game** loads the game
-again. The server checks access independently of that link. Staff see all signed-in players,
+again. The server checks access independently of that link. On a phone, the
+dashboard's tables turn into one labelled card per row. Staff see all signed-in players,
 including hidden leaderboard participants, but never PID. There are no roster,
 question-authoring, or staff-management forms.
 
@@ -95,7 +102,12 @@ the application pods to load it; the exact commands are in
 
 - Overview shows sign-ins, completed runs, attempts, and completion among starters.
 - Level details show question participation, first-encounter and eventual success,
-  median attempts to first solve, and recorded mistakes.
+  median attempts to first solve, and recorded mistakes. Questions in the game now
+  are listed hardest first (lowest first-encounter success; questions nobody has
+  tried come last). Retired questions fold away under **Retired questions** at the
+  bottom.
+- "Active in the last 7 days" counts players whose latest sign-in was within the
+  past week.
 - Question details show the question's code, the most common answers marked
   correct or incorrect, and individual progress.
 - The student directory, searchable by Onyen or leaderboard name, opens run

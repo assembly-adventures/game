@@ -103,7 +103,7 @@ func _init(room: Dictionary, box: VBoxContainer, hint_text) -> void:
 	keys.add_child(check_button)
 	undo_button = _tool("Undo", undo, "Backspace")
 	clear_button = _tool("Clear", restart, "R")
-	hint_button = _tool("Hint", show_hint, "")
+	hint_button = _tool("Hint (−1★)", show_hint, "")
 	for tool in [undo_button, clear_button, hint_button]:
 		keys.add_child(tool)
 	_sync()
@@ -240,7 +240,7 @@ func failed() -> void:
 	grid.queue_redraw()
 	_sync()
 	if fails >= 2 and not hint_used and not hint.is_empty():
-		hint_button.text = "Need a hint?"
+		hint_button.text = "Need a hint? (−1★)"
 		hint_button.modulate = Style.GOLD
 
 func reset() -> void:
