@@ -300,6 +300,7 @@ class Chip extends Button:
 	var t := 0.0
 	var best := ""  # "27 / 30": the best finished run's stars, or "" before any.
 	var going := ""  # "gate 4 of 8": where a run in progress stands, or "" when none is.
+	var going_short := ""  # "4 of 8", for when the longer form doesn't fit.
 
 	func _init(entry: Dictionary) -> void:
 		level = entry
@@ -333,11 +334,14 @@ class Chip extends Button:
 	func set_progress(level_info: Dictionary) -> void:
 		best = ""
 		going = ""
+		going_short = ""
 		if level_info.get("best_stars") != null and level_info.get("max_stars") != null:
 			best = "%d/%d" % [int(level_info.best_stars), int(level_info.max_stars)]
 		var unfinished = level_info.get("in_progress")
 		if unfinished is Dictionary and int(unfinished.get("total", 0)) > 0:
-			going = "gate %d of %d" % [mini(int(unfinished.solved) + 1, int(unfinished.total)), int(unfinished.total)]
+			var at := mini(int(unfinished.solved) + 1, int(unfinished.total))
+			going = "gate %d of %d" % [at, int(unfinished.total)]
+			going_short = "%d of %d" % [at, int(unfinished.total)]
 		if not going.is_empty() and unlocked:
 			tooltip_text = "Continue this level where you left off"
 		queue_redraw()
@@ -381,6 +385,9 @@ class Chip extends Button:
 		draw_multiline_string(font, Vector2(94, 50 + lift), level.name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 104, 17, 2,
 			Style.TEXT)
 		draw_string(font, Vector2(94, size.y - 13 + lift), status, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
+		if note == going and font.get_string_size(status, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 8 \
+				+ font.get_string_size(note, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x > size.x - 108:
+			note = going_short  # "gate 10 of 10" beside "▶ Continue" is too wide for the chip.
 		if not note.is_empty():
 			draw_string(font, Vector2(94, size.y - 13 + lift), note, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 108, 13,
 				Style.GOLD if note.begins_with("★") else Color(Style.TEXT, 0.65))

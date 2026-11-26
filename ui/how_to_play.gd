@@ -32,25 +32,35 @@ const LEVELS := {
 		"scoring": "Every Check, Run, and Race is a try: a wrong one is a strike, and the gate loses a star."},
 }
 
+const WIDTH := 880  # The card's width; its text wraps at this less the margins.
+const MARGIN := 22
+
 var panel: PanelContainer
 var body: VBoxContainer
 var level := 1
+var built := 0  # The level whose card is in `body`, or 0 before any.
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP  # A click outside the card closes it.
 	visible = false
+	# The container sizes and centres the card from its contents on every layout pass, so the card
+	# shrinks as well as grows (a card that sized itself once could keep a too-tall size).
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Clicks beside the card reach the overlay, which closes it.
+	add_child(center)
 	panel = PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	panel.custom_minimum_size = Vector2(880, 0)
+	panel.custom_minimum_size = Vector2(WIDTH, 0)
 	var look := Style.panel_style()
 	look.bg_color = Color(Style.BG, 0.98)
 	look.border_color = Color(Style.CYAN, 0.6)
 	look.shadow_color = Color(0, 0, 0, 0.5)
 	look.shadow_size = 16
-	look.set_content_margin_all(22)
+	look.set_content_margin_all(MARGIN)
 	panel.add_theme_stylebox_override("panel", look)
-	add_child(panel)
+	center.add_child(panel)
 	body = VBoxContainer.new()
 	body.add_theme_constant_override("separation", 6)
 	panel.add_child(body)
@@ -68,13 +78,16 @@ static func mark_seen(level_id: int) -> void:
 
 func open(level_id: int) -> void:
 	level = level_id
-	_fill()
+	if built != level_id:
+		_fill()
+		built = level_id
+	# Shown see-through for its first frame, while the layout settles, so it never flashes at a wrong size.
+	modulate.a = 0.0
 	show()
 	mark_seen(level_id)
-	await get_tree().process_frame
-	panel.reset_size()
-	panel.position = ((size - panel.size) / 2.0).floor()
 	toggled.emit(true)
+	await get_tree().process_frame
+	modulate.a = 1.0
 
 func close() -> void:
 	if visible:
@@ -96,7 +109,7 @@ func _fill() -> void:
 	var card: Dictionary = LEVELS.get(level, LEVELS[1])
 	var top := HBoxContainer.new()
 	body.add_child(top)
-	var heading := _text("How Level %d works" % level, 24, Style.TEXT)
+	var heading := _text("How Level %d works" % level, 24, Style.TEXT, false)
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(heading)
 	var keys := _text("H or Esc closes it", 12, Color(Style.TEXT, 0.45), false)
@@ -136,7 +149,10 @@ func _text(text: String, size: int, color: Color, wrap := true) -> Label:
 	var label := Label.new()
 	label.text = text
 	if wrap:
+		# Wrapped text gets the card's full width from the start: a new label without a width wraps
+		# one word per line, and the card would measure thousands of pixels tall.
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = WIDTH - 2 * MARGIN
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
 	return label

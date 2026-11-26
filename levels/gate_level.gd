@@ -54,6 +54,8 @@ var guide  # The instruction guide, drawn over everything when open.
 var help  # The level's how-to-play card, drawn over everything when open.
 var help_button: Button
 var status_line: RichTextLabel  # Under the title: the stars the gate can still earn, and its strikes.
+var heading_box: Control  # The title and the status line, in the top bar's button height.
+var bottom_row: HBoxContainer  # Under the room: the message bar, and Next gate beside it.
 var shown_status := ""
 var feedback_icon: Label
 var layout_root: MarginContainer
@@ -89,12 +91,32 @@ func _update_status() -> void:
 		shown_status = text
 		status_line.text = text
 		status_line.visible = not text.is_empty()
+		_place_heading()
+	heading_box.custom_minimum_size.x = maxf(title.get_combined_minimum_size().x,
+		status_line.get_combined_minimum_size().x if status_line.visible else 0.0)
+
+## Places the title in the top bar's 48 px: alone, centred; with the status line, the title's letters
+## in the top half and the status line's in the bottom half.
+func _place_heading() -> void:
+	if status_line.visible:
+		title.offset_top = -6.0
+		title.offset_bottom = 32.0
+		status_line.offset_top = 22.0
+		status_line.offset_bottom = 46.0
+	else:
+		title.offset_top = 5.0
+		title.offset_bottom = 43.0
 
 ## The message bar follows its text: hidden when there is nothing to say, and tinted by the kind
 ## of news, red for a strike or an error, green for an open gate, cyan for anything else.
 func _process(_delta: float) -> void:
 	_update_status()
-	if feedback == null or feedback.text == shown_feedback:
+	if feedback == null:
+		return
+	# The row under the room shows while it has a message or a button; a button alone takes the width.
+	bottom_row.visible = not feedback.text.is_empty() or submit.visible
+	submit.size_flags_horizontal = Control.SIZE_FILL if not feedback.text.is_empty() else Control.SIZE_EXPAND_FILL
+	if feedback.text == shown_feedback:
 		return
 	shown_feedback = feedback.text
 	feedback_box.visible = not shown_feedback.is_empty()
@@ -109,8 +131,8 @@ func _process(_delta: float) -> void:
 	look.set_corner_radius_all(8)
 	look.content_margin_left = 14
 	look.content_margin_right = 14
-	look.content_margin_top = 8
-	look.content_margin_bottom = 8
+	look.content_margin_top = 5
+	look.content_margin_bottom = 5
 	feedback_box.add_theme_stylebox_override("panel", look)
 
 func _build_ui() -> void:
@@ -121,11 +143,15 @@ func _build_ui() -> void:
 	var margins := MarginContainer.new()
 	layout_root = margins
 	margins.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for edge in ["left", "right", "top", "bottom"]:
+	# Tighter top and bottom than sides: the room needs the height (a solved gate's explanation can
+	# take three lines under it).
+	for edge in ["left", "right"]:
 		margins.add_theme_constant_override("margin_" + edge, 20)
+	for edge in ["top", "bottom"]:
+		margins.add_theme_constant_override("margin_" + edge, 14)
 	add_child(margins)
 	var layout := VBoxContainer.new()
-	layout.add_theme_constant_override("separation", 10)
+	layout.add_theme_constant_override("separation", 6)
 	margins.add_child(layout)
 	# Top bar: back to the Control Center, the gate count, the instruction guide, and whether progress
 	# is kept.
@@ -137,16 +163,22 @@ func _build_ui() -> void:
 	menu_button.focus_mode = Control.FOCUS_NONE
 	menu_button.pressed.connect(_return_to_center)
 	bar.add_child(menu_button)
-	var heading_box := VBoxContainer.new()
+	# The title and the status line under it share the buttons' height. The font's line boxes are much
+	# taller than its letters (38 px for 22 px text), so the two labels are placed by hand with their
+	# boxes overlapping (see _place_heading); stacked in a container they would make the bar taller and
+	# leave the room too short.
+	heading_box = Control.new()
 	heading_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	heading_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	heading_box.add_theme_constant_override("separation", 0)
+	heading_box.custom_minimum_size.y = 48
+	heading_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(heading_box)
 	title = Label.new()
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 22)
+	title.anchor_right = 1.0
 	heading_box.add_child(title)
 	status_line = RichTextLabel.new()
+	status_line.anchor_right = 1.0
 	status_line.bbcode_enabled = true
 	status_line.fit_content = true
 	status_line.scroll_active = false
@@ -194,7 +226,7 @@ func _build_ui() -> void:
 	help_button.tooltip_text = "How this level works (H)"
 	help_button.custom_minimum_size = Vector2(48, 48)
 	help_button.focus_mode = Control.FOCUS_NONE
-	help_button.add_theme_font_size_override("font_size", 20)
+	help_button.add_theme_font_size_override("font_size", 18)  # At 20, "×" makes the button taller than the bar.
 	help_button.pressed.connect(_toggle_help)
 	bar.add_child(help_button)
 	var settings_button := Settings.make_button()
@@ -207,7 +239,10 @@ func _build_ui() -> void:
 	corridor.gate_clicked.connect(_go_back)
 	layout.add_child(corridor)
 	var frame := PanelContainer.new()
-	frame.add_theme_stylebox_override("panel", Style.panel_style())
+	var frame_look := Style.panel_style()
+	frame_look.content_margin_top = 12
+	frame_look.content_margin_bottom = 12
+	frame.add_theme_stylebox_override("panel", frame_look)
 	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	layout.add_child(frame)
 	var scroll := ScrollContainer.new()
@@ -285,27 +320,35 @@ func _build_ui() -> void:
 	answer_box.add_child(answer_label)
 	# The message under the room (strikes, open gates, and anything else to say) sits in a tinted
 	# bar that only shows when there is something in it; see _process.
+	bottom_row = HBoxContainer.new()
+	bottom_row.add_theme_constant_override("separation", 12)
+	bottom_row.hide()
+	layout.add_child(bottom_row)
 	feedback_box = PanelContainer.new()
 	feedback_box.hide()
-	layout.add_child(feedback_box)
+	feedback_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_row.add_child(feedback_box)
 	feedback = Label.new()
 	feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feedback.add_theme_font_size_override("font_size", 17)
+	feedback.add_theme_font_size_override("font_size", 15)
+	feedback.add_theme_constant_override("line_spacing", -4)  # The font's lines are tall; this keeps a long explanation compact.
 	var message_row := HBoxContainer.new()
 	message_row.add_theme_constant_override("separation", 10)
 	feedback_box.add_child(message_row)
 	feedback_icon = Label.new()  # ✗, ✓, or ›: the kind of news, for anyone who can't tell red from green.
-	feedback_icon.add_theme_font_size_override("font_size", 18)
+	feedback_icon.add_theme_font_size_override("font_size", 16)
 	feedback_icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	message_row.add_child(feedback_icon)
 	feedback.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	message_row.add_child(feedback)
+	# Next gate sits beside the message instead of on a row of its own, so the room keeps its height.
 	submit = Button.new()
 	submit.text = "Check answer"
-	submit.custom_minimum_size = Vector2(0, 44)
+	submit.custom_minimum_size = Vector2(170, 42)
+	submit.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	submit.focus_mode = Control.FOCUS_NONE
 	submit.pressed.connect(_submit)
-	layout.add_child(submit)
+	bottom_row.add_child(submit)
 	retry = Button.new()
 	retry.text = "Retry connection"
 	retry.pressed.connect(_retry)
